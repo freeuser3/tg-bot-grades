@@ -1,6 +1,7 @@
 .worktrees/
 
 config.json
+DEBIAN_HANDOFF.md
 __pycache__/
 *.pyc
 .venv/

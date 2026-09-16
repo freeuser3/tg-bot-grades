@@ -42,13 +42,26 @@
    python3 -m venv .venv
    source .venv/bin/activate
    python -m pip install --upgrade pip
-   python -m pip install -r requirements.txt
 
-Либо вручную (внутри окружения):
+ВАЖНО: пакеты ставим точными версиями и В ЭТОМ ПОРЯДКЕ.
+Порядок критичен: иначе pip из-за зависимости netschoolapi
+(typing-extensions==4.4.0) откатит aiogram до старой 2.x
+или поставит несовместимый pydantic.
 
-   python -m pip install netschoolapi aiogram aiohttp-socks Pillow pytest pytest-asyncio
+   python -m pip install netschoolapi==11.0.5
+   python -m pip install aiogram==3.7.0 pydantic==2.6.4 pydantic_core==2.16.3 typing-extensions==4.16.0
+   python -m pip install aiohttp-socks Pillow pytest pytest-asyncio
 
-Проверка (опционально): запуск тестов
+Предупреждение pip "netschoolapi requires typing-extensions==4.4.0,
+but you have ..." — НЕ ГЛЭТ: версия 4.16.0 совместима и проверена.
+
+Проверка импорта (должно занять 2-10 секунд, НЕ прерывайте Ctrl+C):
+
+   python -c "import aiogram; print(aiogram.__version__)"
+
+Ожидание:  3.7.0
+
+Тесты (опционально):
 
    python -m pytest
 
@@ -197,3 +210,17 @@
 - В systemd логах ошибка кодировки
     → добавьте Environment=LANG=ru_RU.UTF-8 в секцию [Service]
       (уже указано в шаблоне выше).
+- Бот долго стартует / висит при импорте (мало ОЗУ)
+    → импорт aiogram генерирует схемы ~200 моделей и на слабом
+      VPS (512 МБ ОЗУ) может занять 1-5 минут. НЕ прерывайте
+      Ctrl+C сразу — дайте отработать. Если импорт реально не
+      завершается — добавьте swap:
+        sudo fallocate -l 1G /swapfile
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
+      (для постоянного монтирования добавьте строку
+       "/swapfile none swap sw 0 0" в /etc/fstab).
+- aiogram 2.x: ошибка "cannot import name 'F' from 'aiogram'"
+    → неверный порядок установки. Переустановите строго по
+      порядку из раздела 3 (aiogram==3.7.0 после netschoolapi).
