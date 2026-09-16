@@ -3,6 +3,7 @@ import datetime
 import logging
 
 from maxapi import Bot, Dispatcher
+from maxapi.enums.chat_type import ChatType
 from maxapi.types import (
     CallbackButton,
     Command,
@@ -28,6 +29,8 @@ def grades_keyboard() -> InlineKeyboardBuilder:
 
 @dp.message_created(CommandStart())
 async def cmd_start(event: MessageCreated):
+    if event.message.recipient.chat_type != ChatType.DIALOG:
+        return
     await event.message.answer(
         "Привет! Нажми кнопку, чтобы получить оценки.",
         attachments=[grades_keyboard().as_markup()],
@@ -35,26 +38,27 @@ async def cmd_start(event: MessageCreated):
 
 
 @dp.message_created(Command("оценки"))
-async def cmd_grades_week(event: MessageCreated):
+async def cmd_grades(event: MessageCreated, args: list[str]):
+    if event.message.recipient.chat_type != ChatType.DIALOG:
+        return
     today = datetime.date.today()
-    text = await get_grades(today - datetime.timedelta(days=7), today)
-    await event.message.answer(text)
-
-
-@dp.message_created(Command("оценки месяц"))
-async def cmd_grades_month(event: MessageCreated):
-    today = datetime.date.today()
-    text = await get_grades(today - datetime.timedelta(days=30), today)
+    days = 30 if args and args[0].strip() == "месяц" else 7
+    text = await get_grades(today - datetime.timedelta(days=days), today)
     await event.message.answer(text)
 
 
 @dp.message_callback()
 async def on_callback(callback: MessageCallback):
-    if callback.callback.payload == "get_grades":
-        today = datetime.date.today()
-        text = await get_grades(today - datetime.timedelta(days=7), today)
-        chat_id, _ = callback.get_ids()
-        await bot.send_message(chat_id=chat_id, text=text)
+    if callback.callback.payload != "get_grades":
+        return
+    if callback.message is None:
+        return
+    if callback.message.recipient.chat_type != ChatType.DIALOG:
+        return
+    today = datetime.date.today()
+    text = await get_grades(today - datetime.timedelta(days=7), today)
+    chat_id, _ = callback.get_ids()
+    await bot.send_message(chat_id=chat_id, text=text)
 
 
 async def main():
