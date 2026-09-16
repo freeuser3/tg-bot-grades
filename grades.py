@@ -1,8 +1,8 @@
 import datetime
 import json
 
-from netschoolapi import NetSchoolAPI
-from netschoolapi.schemas import Diary
+from netschoolapi_plus import NetSchoolAPI
+from netschoolapi_plus.schemas import Diary
 
 
 def load_config(path="config.json") -> dict:

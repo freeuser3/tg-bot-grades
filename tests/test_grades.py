@@ -70,7 +70,7 @@ from grades import format_diary
 
 def _make_fake_diary():
     """Создаёт фейковый Diary-объект с одним уроком и одной оценкой."""
-    from netschoolapi.schemas import Diary, Day, Lesson, Assignment
+    from netschoolapi_plus.schemas import Diary, Day, Lesson, Assignment
 
     lesson = Lesson(
         day=datetime.date(2026, 9, 15),
@@ -101,7 +101,7 @@ def _make_fake_diary():
 
 
 def _make_lesson(day, subject, mark):
-    from netschoolapi.schemas import Lesson, Assignment
+    from netschoolapi_plus.schemas import Lesson, Assignment
 
     return Lesson(
         day=day,
@@ -133,7 +133,7 @@ def test_format_diary_contains_subject_and_mark():
 
 
 def test_format_diary_sorts_days_by_date():
-    from netschoolapi.schemas import Day, Diary
+    from netschoolapi_plus.schemas import Day, Diary
 
     day_late = Day(
         lessons=[_make_lesson(datetime.date(2026, 9, 16), "История", 4)],
@@ -153,7 +153,7 @@ def test_format_diary_sorts_days_by_date():
 
 
 def test_format_diary_hides_lessons_without_marks():
-    from netschoolapi.schemas import Day, Diary
+    from netschoolapi_plus.schemas import Day, Diary
 
     day = Day(
         lessons=[
@@ -174,7 +174,7 @@ def test_format_diary_hides_lessons_without_marks():
 
 
 def test_format_diary_multiple_marks_joined():
-    from netschoolapi.schemas import Day, Diary, Lesson, Assignment
+    from netschoolapi_plus.schemas import Day, Diary, Lesson, Assignment
 
     lesson = Lesson(
         day=datetime.date(2026, 9, 15),
@@ -215,7 +215,7 @@ def test_format_diary_multiple_marks_joined():
 
 
 def test_format_diary_no_marks():
-    from netschoolapi.schemas import Day, Lesson, Assignment, Diary
+    from netschoolapi_plus.schemas import Day, Lesson, Assignment, Diary
 
     lesson = Lesson(
         day=datetime.date(2026, 9, 15),

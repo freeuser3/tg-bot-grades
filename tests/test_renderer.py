@@ -10,7 +10,7 @@ from renderer import render_diary_image, render_monthly_image
 
 
 def _make_fake_diary():
-    from netschoolapi.schemas import Diary, Day, Lesson, Assignment
+    from netschoolapi_plus.schemas import Diary, Day, Lesson, Assignment
 
     lesson = Lesson(
         day=datetime.date(2026, 9, 15),
@@ -40,7 +40,7 @@ def _make_fake_diary():
 
 
 def _make_fake_diary_no_marks():
-    from netschoolapi.schemas import Diary, Day, Lesson, Assignment
+    from netschoolapi_plus.schemas import Diary, Day, Lesson, Assignment
 
     lesson = Lesson(
         day=datetime.date(2026, 9, 15),
@@ -94,7 +94,7 @@ def test_render_diary_image_writes_file(tmp_path):
 
 
 def test_render_monthly_image_returns_png_bytes():
-    from netschoolapi.schemas import Day as DayCls
+    from netschoolapi_plus.schemas import Day as DayCls
 
     graded = _make_fake_diary().schedule[0]
     # 3 дня в разных неделях, чтобы проверить группировку по неделям
@@ -106,7 +106,7 @@ def test_render_monthly_image_returns_png_bytes():
             day=datetime.date(2026, 9, 22),
         ),
     ]
-    from netschoolapi.schemas import Diary
+    from netschoolapi_plus.schemas import Diary
     diary = Diary(
         start=datetime.date(2026, 9, 1),
         end=datetime.date(2026, 9, 30),
@@ -134,7 +134,7 @@ def test_render_monthly_image_writes_file(tmp_path):
 
 
 def test_empty_day_text_stays_inside_card():
-    from netschoolapi.schemas import Diary, Day
+    from netschoolapi_plus.schemas import Diary, Day
 
     graded = _make_fake_diary().schedule[0]
     empty_day = Day(lessons=[], day=datetime.date(2026, 9, 16))
