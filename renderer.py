@@ -135,3 +135,113 @@ def render_diary_image(diary, font_dir: Path | None = None, output: str | None =
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def _render_monthly_grid(weeks, font_dir: Path) -> Image.Image:
+    W = 720
+    padding = 32
+    card_pad = 24
+    title_font = _font(FONT_BOLD, 32, font_dir)
+    date_font = _font(FONT_BOLD, 18, font_dir)
+    subject_font = _font(FONT_NORMAL, 18, font_dir)
+    mark_size = 26
+    row_h = mark_size + 14
+    col_w = 60
+    subj_w = 210
+    grid_x = padding + card_pad + subj_w
+    card_width = W - 2 * padding
+
+    grid_heights = []
+    for week in weeks:
+        nsubj = len(week["subjects"])
+        gh = card_pad * 2 + _text_height(date_font, "Ag") + 8 + max(nsubj, 1) * row_h
+        grid_heights.append(gh)
+
+    title_h = _text_height(title_font, "Оценки за месяц")
+    total_h = 28 + title_h + 20 + sum(grid_heights) + (len(weeks) - 1) * 16 + padding
+    img = Image.new("RGB", (W, total_h), "#f4f6fb")
+    dr = ImageDraw.Draw(img)
+    x0 = padding
+    y = 28
+
+    dr.text((x0, y), "Оценки за месяц", font=title_font, fill="#1c3d6e")
+    y += title_h + 20
+
+    for i, week in enumerate(weeks):
+        gh = grid_heights[i]
+        dr.rounded_rectangle(
+            [x0, y, x0 + card_width, y + gh],
+            radius=16, fill="#ffffff", outline="#dde3f0", width=1,
+        )
+        # граница между колонкой предметов и оценками
+        dr.line([(grid_x - 12, y + card_pad), (grid_x - 12, y + gh - card_pad)],
+                fill="#e3e8f2", width=1)
+        # заголовок недели: даты дней
+        hx = grid_x
+        for day in week["days"]:
+            label = f"{day['date'].day} {DAYS_RU[day['date'].weekday()]}"
+            tw = dr.textlength(label, font=date_font)
+            dr.text(
+                (hx + (col_w - tw) / 2, y + card_pad),
+                label, font=date_font, fill="#2c5aa0",
+            )
+            hx += col_w
+        # строки предметов
+        ry = y + card_pad + _text_height(date_font, "Ag") + 8
+        for subj in week["subjects"]:
+            dr.text((x0 + card_pad, ry), subj, font=subject_font, fill="#33415c")
+            sx = grid_x
+            for day in week["days"]:
+                marks = day["marks"].get(subj, [])[-2:]
+                mx = sx + (col_w - len(marks) * (mark_size + 4) + 4) / 2
+                for mark in marks:
+                    _draw_mark(dr, mx, ry + (row_h - mark_size) / 2, mark_size, mark, font_dir)
+                    mx += mark_size + 4
+                sx += col_w
+            ry += row_h
+        y += gh + 16
+
+    return img
+
+
+def render_monthly_image(diary, font_dir: Path | None = None, output: str | None = None) -> bytes:
+    """Возвращает PNG-байты компактной таблицы оценок за месяц (стопка недель)."""
+    font_dir = font_dir or FONT_DIR
+
+    from collections import OrderedDict
+
+    has_any = False
+    week_map = OrderedDict()
+    for day in sorted(diary.schedule, key=lambda d: d.day):
+        y, w, _ = day.day.isocalendar()
+        key = (y, w)
+        week = week_map.setdefault(key, {"days": [], "subjects": OrderedDict()})
+        day_marks = {}
+        for lesson in day.lessons:
+            marks = [a.mark for a in lesson.assignments if a.mark]
+            if marks:
+                day_marks[lesson.subject] = marks
+                has_any = True
+        if day_marks:
+            week["days"].append({"date": day.day, "marks": day_marks})
+
+    if not has_any:
+        return b""
+
+    weeks = []
+    for key in week_map:
+        week = week_map[key]
+        subjects = []
+        for d in week["days"]:
+            for s in d["marks"]:
+                if s not in subjects:
+                    subjects.append(s)
+        weeks.append({"days": week["days"], "subjects": sorted(subjects)})
+
+    img = _render_monthly_grid(weeks, Path(font_dir))
+    if output:
+        img.save(output)
+        return Path(output).read_bytes()
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()

@@ -8,35 +8,40 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from grades import fetch_diary, get_grades, load_config
-from renderer import render_diary_image
+from renderer import render_diary_image, render_monthly_image
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
 dp = Dispatcher()
 
 GET_GRADES_TEXT = "📊 Получить оценки"
+GET_GRADES_MONTH_TEXT = "📊 Оценки за месяц"
 
 
 def grades_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=GET_GRADES_TEXT)]],
+        keyboard=[
+            [KeyboardButton(text=GET_GRADES_TEXT)],
+            [KeyboardButton(text=GET_GRADES_MONTH_TEXT)],
+        ],
         resize_keyboard=True,
     )
 
 
-async def send_grades(message: Message, days: int):
-    today = datetime.date.today()
+async def send_grades(message: Message, start: datetime.date, end: datetime.date,
+                      month: bool = False):
     output_mode = config.get("output_mode", "text")
     if output_mode == "image":
-        diary = await fetch_diary(today - datetime.timedelta(days=days), today)
-        png = render_diary_image(diary)
+        diary = await fetch_diary(start, end)
+        png = render_monthly_image(diary) if month else render_diary_image(diary)
         if png:
-            await message.answer("📊 Оценки за неделю:")
+            title = "📊 Оценки за месяц" if month else "📊 Оценки за неделю"
+            await message.answer(title)
             await message.answer_photo(BufferedInputFile(png, filename="grades.png"))
             return
         await message.answer("За указанный период оценок нет")
         return
-    text = await get_grades(today - datetime.timedelta(days=days), today)
+    text = await get_grades(start, end)
     await message.answer(text)
 
 
@@ -50,13 +55,24 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("оценки"), F.chat.type == "private")
 async def cmd_grades(message: Message, command: CommandObject):
-    days = 30 if command.args and command.args.strip().casefold() == "месяц" else 7
-    await send_grades(message, days)
+    today = datetime.date.today()
+    if command.args and command.args.strip().casefold() == "месяц":
+        start = today.replace(day=1)
+        await send_grades(message, start, today, month=True)
+        return
+    await send_grades(message, today - datetime.timedelta(days=7), today)
 
 
 @dp.message(F.text == GET_GRADES_TEXT, F.chat.type == "private")
 async def on_grades_button(message: Message):
-    await send_grades(message, 7)
+    today = datetime.date.today()
+    await send_grades(message, today - datetime.timedelta(days=7), today)
+
+
+@dp.message(F.text == GET_GRADES_MONTH_TEXT, F.chat.type == "private")
+async def on_grades_month_button(message: Message):
+    today = datetime.date.today()
+    await send_grades(message, today.replace(day=1), today, month=True)
 
 
 async def main():

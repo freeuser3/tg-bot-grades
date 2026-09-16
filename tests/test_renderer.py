@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from grades import format_diary
-from renderer import render_diary_image
+from renderer import render_diary_image, render_monthly_image
 
 
 def _make_fake_diary():
@@ -89,6 +89,46 @@ def test_render_diary_image_writes_file(tmp_path):
     diary = _make_fake_diary()
     out = tmp_path / "diary.png"
     data = render_diary_image(diary, output=str(out))
+    assert out.exists()
+    assert out.read_bytes() == data
+
+
+def test_render_monthly_image_returns_png_bytes():
+    from netschoolapi.schemas import Day as DayCls
+
+    graded = _make_fake_diary().schedule[0]
+    # 3 дня в разных неделях, чтобы проверить группировку по неделям
+    days = [
+        graded,
+        DayCls(lessons=[], day=datetime.date(2026, 9, 16)),  # нет оценок
+        DayCls(
+            lessons=[graded.lessons[0]],  # та же Алгебра
+            day=datetime.date(2026, 9, 22),
+        ),
+    ]
+    from netschoolapi.schemas import Diary
+    diary = Diary(
+        start=datetime.date(2026, 9, 1),
+        end=datetime.date(2026, 9, 30),
+        schedule=days,
+    )
+    data = render_monthly_image(diary)
+    assert isinstance(data, bytes)
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    img = Image.open(BytesIO(data))
+    assert img.width == 720
+    assert img.height > 100
+
+
+def test_render_monthly_image_empty_diary_returns_empty_bytes():
+    data = render_monthly_image(_make_fake_diary_no_marks())
+    assert data == b""
+
+
+def test_render_monthly_image_writes_file(tmp_path):
+    diary = _make_fake_diary()
+    out = tmp_path / "monthly.png"
+    data = render_monthly_image(diary, output=str(out))
     assert out.exists()
     assert out.read_bytes() == data
 
