@@ -1,0 +1,4 @@
+netschoolapi
+maxapi
+pytest
+pytest-asyncio
