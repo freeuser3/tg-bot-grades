@@ -3,6 +3,50 @@ import json
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_get_grades_calls_netschoolapi(tmp_path):
+    import datetime
+    import os
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "ns_login": "user",
+        "ns_password": "pass",
+        "ns_school": "School",
+        "max_bot_token": "token",
+    }), encoding="utf-8")
+
+    fake_diary = _make_fake_diary()
+
+    with patch("grades.load_config") as mock_cfg, \
+         patch("grades.NetSchoolAPI") as mock_ns_cls:
+
+        mock_cfg.return_value = {
+            "ns_login": "user",
+            "ns_password": "pass",
+            "ns_school": "School",
+            "max_bot_token": "token",
+        }
+
+        mock_ns = AsyncMock()
+        mock_ns.diary = AsyncMock(return_value=fake_diary)
+        mock_ns.logout = AsyncMock()
+        mock_ns.login = AsyncMock()
+        mock_ns_cls.return_value = mock_ns
+
+        from grades import get_grades
+        result = await get_grades(
+            datetime.date(2026, 9, 15),
+            datetime.date(2026, 9, 21),
+        )
+
+        assert "Алгебра" in result
+        mock_ns.login.assert_called_once()
+        mock_ns.diary.assert_called_once()
+        mock_ns.logout.assert_called_once()
+
+
 def test_load_config_reads_file(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({

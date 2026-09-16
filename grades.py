@@ -1,5 +1,7 @@
+import datetime
 import json
 
+from netschoolapi import NetSchoolAPI
 from netschoolapi.schemas import Diary
 
 
@@ -21,3 +23,23 @@ def format_diary(diary: Diary) -> str:
         else:
             lines.append("  выходной / нет занятий")
     return "\n".join(lines)
+
+
+async def get_grades(start: datetime.date, end: datetime.date) -> str:
+    config = load_config()
+    ns = NetSchoolAPI("https://sgo.e-mordovia.ru")
+    try:
+        await ns.login(
+            config["ns_login"],
+            config["ns_password"],
+            config["ns_school"],
+        )
+        diary = await ns.diary(start=start, end=end)
+    except Exception as e:
+        return f"Ошибка при получении оценок: {e}"
+    finally:
+        try:
+            await ns.logout()
+        except Exception:
+            pass
+    return format_diary(diary)
