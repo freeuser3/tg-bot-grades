@@ -2,5 +2,7 @@
   "ns_login": "ваш_логин",
   "ns_password": "ваш_пароль",
   "ns_school": "МОУ \"Лицей № 4\"",
-  "max_bot_token": "токен_бота_max"
+  "tg_bot_token": "токен_бота_telegram",
+  "use_proxy": false,
+  "proxy_url": "socks5://127.0.0.1:10808"
 }

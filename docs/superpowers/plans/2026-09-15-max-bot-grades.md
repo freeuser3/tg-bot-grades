@@ -1,12 +1,16 @@
-# Бот MAX для школьных оценок — План реализации
+# Бот Telegram для школьных оценок — План реализации
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Бот в мессенджере MAX, показывающий школьные оценки из электронного дневника «Сетевой город».
+**Goal:** Бот в Telegram, показывающий школьные оценки из электронного дневника «Сетевой город».
 
-**Architecture:** Два модуля — `grades.py` (логика дневника) и `bot.py` (бот MAX). Учётные данные хранятся в `config.json`. Бот отвечает на inline-кнопку «Получить оценки» и команды.
+**Architecture:** Два модуля — `grades.py` (логика дневника) и `bot.py` (бот Telegram). Учётные данные хранятся в `config.json`. Бот отвечает на inline-кнопку «Получить оценки» и команды.
 
-**Tech Stack:** Python 3.12, `netschoolapi`, `maxapi`, `pytest`.
+> **Изменение по ходу работы (2026-09-16):** MAX требует бизнес-верификации
+> (юрлица/ИП/самозанятые — резиденты РФ). Перешли на Telegram (aiogram 3).
+> for maxapi: max_bot_token → tg_bot_token; удалены REGISTER_MAX_BOT.txt и maxapi из requirements.
+
+**Tech Stack:** Python 3.12, `netschoolapi`, `aiogram`, `aiohttp-socks` (прокси), `pytest`.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-max-bot-grades-design.md`
 
@@ -19,7 +23,7 @@
 | `config.json` | Учётные данные (в `.gitignore`) |
 | `config.example.json` | Шаблон для репозитория |
 | `grades.py` | Загрузка конфига + функция `get_grades(start, end)` |
-| `bot.py` | Бот MAX: команды, кнопки, callback |
+| `bot.py` | Бот Telegram (aiogram): команды, кнопки, callback |
 | `main.py` | CLI-обёртка (обновлена) |
 | `tests/test_grades.py` | Unit-тесты логики форматирования |
 
@@ -52,7 +56,7 @@ __pycache__/
   "ns_login": "ваш_логин",
   "ns_password": "ваш_пароль",
   "ns_school": "МОУ \"Лицей № 4\"",
-  "max_bot_token": "токен_бота_max"
+  "tg_bot_token": "токен_бота_telegram"
 }
 ```
 
@@ -90,7 +94,7 @@ def test_load_config_reads_file(tmp_path):
         "ns_login": "test",
         "ns_password": "pass",
         "ns_school": "School",
-        "max_bot_token": "token123"
+        "tg_bot_token": "token123"
     }), encoding='utf-8')
 
     os.chdir(tmp_path)
@@ -98,7 +102,7 @@ def test_load_config_reads_file(tmp_path):
     result = load_config(str(config_path))
 
     assert result["ns_login"] == "test"
-    assert result["max_bot_token"] == "token123"
+    assert result["tg_bot_token"] == "token123"
 ```
 
 - [ ] **Step 2: Запустить тест — должен упасть ( grades не существует )**
@@ -287,7 +291,7 @@ async def test_get_grades_calls_netschoolapi(tmp_path):
         "ns_login": "user",
         "ns_password": "pass",
         "ns_school": "School",
-        "max_bot_token": "token",
+        "tg_bot_token": "token",
     }), encoding="utf-8")
 
     fake_diary = _make_fake_diary()
@@ -299,7 +303,7 @@ async def test_get_grades_calls_netschoolapi(tmp_path):
             "ns_login": "user",
             "ns_password": "pass",
             "ns_school": "School",
-            "max_bot_token": "token",
+            "tg_bot_token": "token",
         }
 
         mock_ns = AsyncMock()
@@ -419,7 +423,7 @@ git commit -m "refactor: simplify main.py to use grades module"
 
 ---
 
-### Task 6: Бот MAX — скелет с командами
+### Task 6: Бот Telegram — скелет с командами
 
 **Files:**
 - Create: `bot.py`
@@ -428,74 +432,77 @@ git commit -m "refactor: simplify main.py to use grades module"
 - Consumes: `grades.get_grades()`
 - Produces: бот, реагирующий на `/start`, `/оценки`, `/оценки месяц`
 
-- [ ] **Step 1: Установить maxapi**
+- [x] **Step 1: Установить aiogram**
 
-Run: `pip install maxapi`
+Run: `pip install aiogram`
 Expected: установка завершается без ошибок
 
-- [ ] **Step 2: Создать `bot.py`**
+- [x] **Step 2: Создать `bot.py`** (aiogram 3, команды + inline-кнопка,
+      только личные чаты -- `F.chat.type == "private"`)
 
 ```python
 import asyncio
 import datetime
 import logging
 
-from maxapi import Bot, Dispatcher
-from maxapi.types import (
-    CallbackButton,
-    Command,
-    CommandStart,
-    MessageCallback,
-    MessageCreated,
-)
-from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from grades import get_grades, load_config
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
-bot = Bot(config["max_bot_token"])
 dp = Dispatcher()
 
 
-def grades_keyboard() -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Получить оценки", payload="get_grades"))
-    return builder
-
-
-@dp.message_created(CommandStart())
-async def cmd_start(event: MessageCreated):
-    await event.message.answer(
-        "Привет! Нажми кнопку, чтобы получить оценки.",
-        attachments=[grades_keyboard().as_markup()],
+def grades_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Получить оценки",
+                    callback_data="get_grades",
+                )
+            ]
+        ]
     )
 
 
-@dp.message_created(Command("оценки"))
-async def cmd_grades_week(event: MessageCreated):
+@dp.message(CommandStart(), F.chat.type == "private")
+async def cmd_start(message: Message):
+    await message.answer(
+        "Привет! Нажми кнопку, чтобы получить оценки.",
+        reply_markup=grades_keyboard(),
+    )
+
+
+@dp.message(Command("оценки"), F.chat.type == "private")
+async def cmd_grades(message: Message, command: CommandObject):
+    today = datetime.date.today()
+    days = 30 if command.args and command.args.strip().casefold() == "месяц" else 7
+    text = await get_grades(today - datetime.timedelta(days=days), today)
+    await message.answer(text)
+
+
+@dp.callback_query(F.data == "get_grades")
+async def on_callback(callback: CallbackQuery):
+    if callback.message is None or callback.message.chat.type != "private":
+        return
+    await callback.answer()
     today = datetime.date.today()
     text = await get_grades(today - datetime.timedelta(days=7), today)
-    await event.message.answer(text)
-
-
-@dp.message_created(Command("оценки месяц"))
-async def cmd_grades_month(event: MessageCreated):
-    today = datetime.date.today()
-    text = await get_grades(today - datetime.timedelta(days=30), today)
-    await event.message.answer(text)
-
-
-@dp.message_callback()
-async def on_callback(callback: MessageCallback):
-    if callback.callback.payload == "get_grades":
-        today = datetime.date.today()
-        text = await get_grades(today - datetime.timedelta(days=7), today)
-        chat_id, _ = callback.get_ids()
-        await bot.send_message(chat_id=chat_id, text=text)
+    await callback.message.answer(text)
 
 
 async def main():
+    token = config.get("tg_bot_token", "").strip()
+    if not token:
+        raise SystemExit(
+            "В config.json не задан tg_bot_token. "
+            "Создайте бота через @BotFather и вставьте токен."
+        )
+    bot = Bot(token)
     await dp.start_polling(bot)
 
 
@@ -503,7 +510,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-- [ ] **Step 3: Закоммичить**
+- [x] **Step 3: Закоммичить**
 
 ```bash
 git add bot.py
@@ -526,14 +533,14 @@ git commit -m "feat: add MAX bot with grades button"
 ```bash
 cp config.example.json config.json
 ```
-Заполнить реальными данными.
+Заполнить реальными данными (ns_* + tg_bot_token из @BotFather).
 
 - [ ] **Step 2: Запустить бота**
 
 Run: `python bot.py`
-Expected: логи показывают `INFO: ... Polling started`
+Expected: логи показывают `INFO: ... Start polling`
 
-- [ ] **Step 3: Отправить боту в MAX команду `/start`**
+- [ ] **Step 3: Отправить боту в Telegram команду `/start`**
 Expected: бот отвечает текстом и кнопкой «Получить оценки»
 
 - [ ] **Step 4: Нажать кнопку «Получить оценки»**

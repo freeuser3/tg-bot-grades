@@ -2,66 +2,73 @@ import asyncio
 import datetime
 import logging
 
-from maxapi import Bot, Dispatcher
-from maxapi.enums.chat_type import ChatType
-from maxapi.types import (
-    CallbackButton,
-    Command,
-    CommandStart,
-    MessageCallback,
-    MessageCreated,
-)
-from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from grades import get_grades, load_config
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
-bot = Bot(config["max_bot_token"])
 dp = Dispatcher()
 
 
-def grades_keyboard() -> InlineKeyboardBuilder:
-    builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Получить оценки", payload="get_grades"))
-    return builder
-
-
-@dp.message_created(CommandStart())
-async def cmd_start(event: MessageCreated):
-    if event.message.recipient.chat_type != ChatType.DIALOG:
-        return
-    await event.message.answer(
-        "Привет! Нажми кнопку, чтобы получить оценки.",
-        attachments=[grades_keyboard().as_markup()],
+def grades_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Получить оценки",
+                    callback_data="get_grades",
+                )
+            ]
+        ]
     )
 
 
-@dp.message_created(Command("оценки"))
-async def cmd_grades(event: MessageCreated, args: list[str]):
-    if event.message.recipient.chat_type != ChatType.DIALOG:
-        return
+@dp.message(CommandStart(), F.chat.type == "private")
+async def cmd_start(message: Message):
+    await message.answer(
+        "Привет! Нажми кнопку, чтобы получить оценки.",
+        reply_markup=grades_keyboard(),
+    )
+
+
+@dp.message(Command("оценки"), F.chat.type == "private")
+async def cmd_grades(message: Message, command: CommandObject):
     today = datetime.date.today()
-    days = 30 if args and args[0].strip() == "месяц" else 7
+    days = 30 if command.args and command.args.strip().casefold() == "месяц" else 7
     text = await get_grades(today - datetime.timedelta(days=days), today)
-    await event.message.answer(text)
+    await message.answer(text)
 
 
-@dp.message_callback()
-async def on_callback(callback: MessageCallback):
-    if callback.callback.payload != "get_grades":
+@dp.callback_query(F.data == "get_grades")
+async def on_callback(callback: CallbackQuery):
+    if callback.message is None or callback.message.chat.type != "private":
         return
-    if callback.message is None:
-        return
-    if callback.message.recipient.chat_type != ChatType.DIALOG:
-        return
+    await callback.answer()
     today = datetime.date.today()
     text = await get_grades(today - datetime.timedelta(days=7), today)
-    chat_id, _ = callback.get_ids()
-    await bot.send_message(chat_id=chat_id, text=text)
+    await callback.message.answer(text)
 
 
 async def main():
+    token = config.get("tg_bot_token", "").strip()
+    if not token:
+        raise SystemExit(
+            "В config.json не задан tg_bot_token. "
+            "Создайте бота через @BotFather и вставьте токен."
+        )
+    session = None
+    if config.get("use_proxy"):
+        proxy_url = config.get("proxy_url", "").strip()
+        if not proxy_url:
+            raise SystemExit(
+                "В config.json задан use_proxy, но не указан proxy_url."
+            )
+        session = AiohttpSession(proxy=proxy_url)
+    bot = Bot(token, session=session)
     await dp.start_polling(bot)
 
 

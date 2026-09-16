@@ -1,4 +1,5 @@
 netschoolapi
-maxapi
+aiogram
+aiohttp-socks
 pytest
 pytest-asyncio

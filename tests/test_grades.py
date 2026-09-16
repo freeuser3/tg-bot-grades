@@ -14,7 +14,7 @@ async def test_get_grades_calls_netschoolapi(tmp_path):
         "ns_login": "user",
         "ns_password": "pass",
         "ns_school": "School",
-        "max_bot_token": "token",
+        "tg_bot_token": "token",
     }), encoding="utf-8")
 
     fake_diary = _make_fake_diary()
@@ -26,7 +26,7 @@ async def test_get_grades_calls_netschoolapi(tmp_path):
             "ns_login": "user",
             "ns_password": "pass",
             "ns_school": "School",
-            "max_bot_token": "token",
+            "tg_bot_token": "token",
         }
 
         mock_ns = AsyncMock()
@@ -53,14 +53,14 @@ def test_load_config_reads_file(tmp_path):
         "ns_login": "test",
         "ns_password": "pass",
         "ns_school": "School",
-        "max_bot_token": "token123"
+        "tg_bot_token": "token123"
     }), encoding='utf-8')
 
     from grades import load_config
     result = load_config(str(config_path))
 
     assert result["ns_login"] == "test"
-    assert result["max_bot_token"] == "token123"
+    assert result["tg_bot_token"] == "token123"
 
 
 import datetime
