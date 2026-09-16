@@ -5,26 +5,39 @@ import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
-from grades import get_grades, load_config
+from grades import fetch_diary, get_grades, load_config
+from renderer import render_diary_image
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
 dp = Dispatcher()
 
+GET_GRADES_TEXT = "📊 Получить оценки"
 
-def grades_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Получить оценки",
-                    callback_data="get_grades",
-                )
-            ]
-        ]
+
+def grades_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=GET_GRADES_TEXT)]],
+        resize_keyboard=True,
     )
+
+
+async def send_grades(message: Message, days: int):
+    today = datetime.date.today()
+    output_mode = config.get("output_mode", "text")
+    if output_mode == "image":
+        diary = await fetch_diary(today - datetime.timedelta(days=days), today)
+        png = render_diary_image(diary)
+        if png:
+            await message.answer("📊 Оценки за неделю:")
+            await message.answer_photo(BufferedInputFile(png, filename="grades.png"))
+            return
+        await message.answer("За указанный период оценок нет")
+        return
+    text = await get_grades(today - datetime.timedelta(days=days), today)
+    await message.answer(text)
 
 
 @dp.message(CommandStart(), F.chat.type == "private")
@@ -37,20 +50,13 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("оценки"), F.chat.type == "private")
 async def cmd_grades(message: Message, command: CommandObject):
-    today = datetime.date.today()
     days = 30 if command.args and command.args.strip().casefold() == "месяц" else 7
-    text = await get_grades(today - datetime.timedelta(days=days), today)
-    await message.answer(text)
+    await send_grades(message, days)
 
 
-@dp.callback_query(F.data == "get_grades")
-async def on_callback(callback: CallbackQuery):
-    if callback.message is None or callback.message.chat.type != "private":
-        return
-    await callback.answer()
-    today = datetime.date.today()
-    text = await get_grades(today - datetime.timedelta(days=7), today)
-    await callback.message.answer(text)
+@dp.message(F.text == GET_GRADES_TEXT, F.chat.type == "private")
+async def on_grades_button(message: Message):
+    await send_grades(message, 7)
 
 
 async def main():

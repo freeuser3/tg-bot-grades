@@ -39,10 +39,13 @@
       "ns_login": "ваш_логин_СГО",
       "ns_password": "ваш_пароль_СГО",
       "ns_school": "МОУ \"Лицей № 4\"",
-      "tg_bot_token": "1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+      "tg_bot_token": "1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
+      "output_mode": "image"
     }
 
 config.json НЕ хранится в git (добавлен в .gitignore).
+output_mode: "image" — оценки картинкой (по умолчанию),
+             "text" — оценки текстом (запасной вариант).
 
 
 3. ЗАПУСК БОТА (кратко)

@@ -100,11 +100,118 @@ def _make_fake_diary():
     return diary
 
 
+def _make_lesson(day, subject, mark):
+    from netschoolapi.schemas import Lesson, Assignment
+
+    return Lesson(
+        day=day,
+        start=datetime.time(9, 0),
+        end=datetime.time(9, 45),
+        room="101",
+        number=1,
+        subject=subject,
+        assignments=[
+            Assignment(
+                id=1,
+                comment="",
+                type="Ответ на уроке",
+                content="",
+                mark=mark,
+                is_duty=False,
+                deadline=day,
+            )
+        ],
+    )
+
+
 def test_format_diary_contains_subject_and_mark():
     diary = _make_fake_diary()
     text = format_diary(diary)
     assert "Алгебра" in text
-    assert "5" in text
+    assert "5️⃣" in text
+    assert "оценки" not in text
+
+
+def test_format_diary_sorts_days_by_date():
+    from netschoolapi.schemas import Day, Diary
+
+    day_late = Day(
+        lessons=[_make_lesson(datetime.date(2026, 9, 16), "История", 4)],
+        day=datetime.date(2026, 9, 16),
+    )
+    day_early = Day(
+        lessons=[_make_lesson(datetime.date(2026, 9, 10), "Алгебра", 5)],
+        day=datetime.date(2026, 9, 10),
+    )
+    diary = Diary(
+        start=datetime.date(2026, 9, 10),
+        end=datetime.date(2026, 9, 16),
+        schedule=[day_late, day_early],
+    )
+    text = format_diary(diary)
+    assert text.index("--- 2026-09-10 ---") < text.index("--- 2026-09-16 ---")
+
+
+def test_format_diary_hides_lessons_without_marks():
+    from netschoolapi.schemas import Day, Diary
+
+    day = Day(
+        lessons=[
+            _make_lesson(datetime.date(2026, 9, 15), "Алгебра", 5),
+            _make_lesson(datetime.date(2026, 9, 15), "Физкультура", None),
+        ],
+        day=datetime.date(2026, 9, 15),
+    )
+    diary = Diary(
+        start=datetime.date(2026, 9, 15),
+        end=datetime.date(2026, 9, 15),
+        schedule=[day],
+    )
+    text = format_diary(diary)
+    assert "Алгебра" in text
+    assert "5️⃣" in text
+    assert "Физкультура" not in text
+
+
+def test_format_diary_multiple_marks_joined():
+    from netschoolapi.schemas import Day, Diary, Lesson, Assignment
+
+    lesson = Lesson(
+        day=datetime.date(2026, 9, 15),
+        start=datetime.time(9, 0),
+        end=datetime.time(9, 45),
+        room="101",
+        number=1,
+        subject="Физика",
+        assignments=[
+            Assignment(
+                id=1,
+                comment="",
+                type="Ответ на уроке",
+                content="",
+                mark=5,
+                is_duty=False,
+                deadline=datetime.date(2026, 9, 15),
+            ),
+            Assignment(
+                id=2,
+                comment="",
+                type="Домашняя работа",
+                content="",
+                mark=4,
+                is_duty=False,
+                deadline=datetime.date(2026, 9, 15),
+            ),
+        ],
+    )
+    day = Day(lessons=[lesson], day=datetime.date(2026, 9, 15))
+    diary = Diary(
+        start=datetime.date(2026, 9, 15),
+        end=datetime.date(2026, 9, 15),
+        schedule=[day],
+    )
+    text = format_diary(diary)
+    assert "Физика: 5️⃣, 4️⃣" in text
 
 
 def test_format_diary_no_marks():
@@ -136,4 +243,5 @@ def test_format_diary_no_marks():
         schedule=[day],
     )
     text = format_diary(diary)
-    assert "нет" in text
+    assert "Физкультура" not in text
+    assert "—" in text

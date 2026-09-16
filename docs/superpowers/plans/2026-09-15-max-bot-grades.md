@@ -437,8 +437,8 @@ git commit -m "refactor: simplify main.py to use grades module"
 Run: `pip install aiogram`
 Expected: установка завершается без ошибок
 
-- [x] **Step 2: Создать `bot.py`** (aiogram 3, команды + inline-кнопка,
-      только личные чаты -- `F.chat.type == "private"`)
+- [x] **Step 2: Создать `bot.py`** (aiogram 3, команды + reply-клавиатура
+      «📊 Получить оценки», только личные чаты -- `F.chat.type == "private"`)
 
 ```python
 import asyncio
@@ -446,8 +446,9 @@ import datetime
 import logging
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from grades import get_grades, load_config
 
@@ -455,18 +456,20 @@ logging.basicConfig(level=logging.INFO)
 config = load_config()
 dp = Dispatcher()
 
+GET_GRADES_TEXT = "📊 Получить оценки"
 
-def grades_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Получить оценки",
-                    callback_data="get_grades",
-                )
-            ]
-        ]
+
+def grades_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=GET_GRADES_TEXT)]],
+        resize_keyboard=True,
     )
+
+
+async def send_grades(message: Message, days: int):
+    today = datetime.date.today()
+    text = await get_grades(today - datetime.timedelta(days=days), today)
+    await message.answer(text)
 
 
 @dp.message(CommandStart(), F.chat.type == "private")
@@ -479,20 +482,13 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("оценки"), F.chat.type == "private")
 async def cmd_grades(message: Message, command: CommandObject):
-    today = datetime.date.today()
     days = 30 if command.args and command.args.strip().casefold() == "месяц" else 7
-    text = await get_grades(today - datetime.timedelta(days=days), today)
-    await message.answer(text)
+    await send_grades(message, days)
 
 
-@dp.callback_query(F.data == "get_grades")
-async def on_callback(callback: CallbackQuery):
-    if callback.message is None or callback.message.chat.type != "private":
-        return
-    await callback.answer()
-    today = datetime.date.today()
-    text = await get_grades(today - datetime.timedelta(days=7), today)
-    await callback.message.answer(text)
+@dp.message(F.text == GET_GRADES_TEXT, F.chat.type == "private")
+async def on_grades_button(message: Message):
+    await send_grades(message, 7)
 
 
 async def main():
@@ -502,7 +498,15 @@ async def main():
             "В config.json не задан tg_bot_token. "
             "Создайте бота через @BotFather и вставьте токен."
         )
-    bot = Bot(token)
+    session = None
+    if config.get("use_proxy"):
+        proxy_url = config.get("proxy_url", "").strip()
+        if not proxy_url:
+            raise SystemExit(
+                "В config.json задан use_proxy, но не указан proxy_url."
+            )
+        session = AiohttpSession(proxy=proxy_url)
+    bot = Bot(token, session=session)
     await dp.start_polling(bot)
 
 

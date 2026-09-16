@@ -4,5 +4,6 @@
   "ns_school": "МОУ \"Лицей № 4\"",
   "tg_bot_token": "токен_бота_telegram",
   "use_proxy": false,
-  "proxy_url": "socks5://127.0.0.1:10808"
+  "proxy_url": "socks5://127.0.0.1:10808",
+  "output_mode": "image"
 }

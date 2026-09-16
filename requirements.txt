@@ -1,5 +1,6 @@
 netschoolapi
 aiogram
 aiohttp-socks
+Pillow
 pytest
 pytest-asyncio
