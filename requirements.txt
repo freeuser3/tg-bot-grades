@@ -1,4 +1,4 @@
-netschool-api-plus==11.0.5
+netschoolapi-plus @ git+https://github.com/freeuser3/netschool-api-plus.git
 aiogram==3.7.0
 pydantic==2.6.4
 aiohttp-socks

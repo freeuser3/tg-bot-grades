@@ -28,7 +28,7 @@
    python bot.py
    ```
 
-4. Проверьте в Telegram: `/start`, кнопка «Получить оценки», `/оценки`, `/оценки месяц`.
+4. Проверьте в Telegram: `/start`, кнопка «Получить оценки», `/оценки`, `/оценки месяц`, «Отчёт об успеваемости».
 
 ## Библиотека для СГО: netschool-api-plus
 
@@ -40,8 +40,12 @@
 - **`report_file()`** — получение официального HTML-отчёта через цепочку
   `POST reports/studenttotal/queue` → WebSocket `signalr/queueHub` → `GET files/{fileCode}`.
   Старый флоу (SignalR negotiate/SSE) на серверах СГО 5.56 возвращал 404.
+  Без дат берёт период текущего триместра с сервера (`filterSources.period`).
 - **`report_studenttotal()`** — парсинг отчёта в структурированные данные:
   `StudentTotalReport`, `SubjectReport` (оценки по датам + средняя + итоговая).
+- Кнопка **«📄 Отчёт об успеваемости»** в боте отдаёт PNG-картинку отчёта за
+  триместр: таблицы по месяцам (предмет × даты), колонки «Ср.» и «Итог»,
+  нечисловые отметки (`н`, `п`, …) — серые кружки.
 - Интерфейс базовых методов (`login`, `logout`, `diary`, `schemas`) — идентичен
   оригиналу, поэтому миграция сводится к замене импорта:
 
@@ -74,7 +78,33 @@
 python -m pytest -q
 ```
 
-Ожидание: 16 passed.
+Ожидание: 22 passed.
+
+## Обновление на сервере (Debian)
+
+Порядок после `git pull`:
+
+```bash
+# 1. Остановить бота
+#    (Ctrl+C в терминале, где он запущен, или pkill -f bot.py)
+
+# 2. Обновить зависимости (форк netschool-api-plus из git + точно pinned aiogram/pydantic)
+pip install -r requirements.txt
+
+# 3. Убедиться, что старый netschoolapi не мешает (перетирает typing-extensions)
+pip uninstall -y netschoolapi   # если установлен
+
+# 4. Прогнать тесты и запустить
+python -m pytest -q             # ожидание: 22 passed
+python bot.py
+```
+
+ВАЖНО: `requirements.txt` ставит форк прямо из git
+(`netschoolapi-plus @ git+https://github.com/freeuser3/netschool-api-plus.git`)
+и жёстко пинит aiogram==3.7.0/pydantic==2.6.4, поэтому единая команда
+`pip install -r requirements.txt` приводит зависимости в порядок и не
+откатывает aiogram (как было с ручным `pip install netschoolapi`).
+Актуальный код бота — в `master` на GitHub.
 
 ## Инструкции
 
