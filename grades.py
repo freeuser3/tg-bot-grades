@@ -53,6 +53,24 @@ async def fetch_diary(start: datetime.date, end: datetime.date) -> Diary:
     return diary
 
 
+async def fetch_report():
+    config = load_config()
+    ns = NetSchoolAPI("https://sgo.e-mordovia.ru")
+    try:
+        await ns.login(
+            config["ns_login"],
+            config["ns_password"],
+            config["ns_school"],
+        )
+        report = await ns.report_studenttotal()
+    finally:
+        try:
+            await ns.logout()
+        except Exception:
+            pass
+    return report
+
+
 async def get_grades(start: datetime.date, end: datetime.date) -> str:
     try:
         diary = await fetch_diary(start, end)

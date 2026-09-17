@@ -7,8 +7,8 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
-from grades import fetch_diary, get_grades, load_config
-from renderer import render_diary_image, render_monthly_image
+from grades import fetch_diary, fetch_report, get_grades, load_config
+from renderer import render_diary_image, render_monthly_image, render_report_image
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
@@ -16,6 +16,7 @@ dp = Dispatcher()
 
 GET_GRADES_TEXT = "📊 Получить оценки"
 GET_GRADES_MONTH_TEXT = "📊 Оценки за месяц"
+GET_REPORT_TEXT = "📄 Отчёт об успеваемости"
 
 
 def grades_keyboard() -> ReplyKeyboardMarkup:
@@ -23,6 +24,7 @@ def grades_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=GET_GRADES_TEXT)],
             [KeyboardButton(text=GET_GRADES_MONTH_TEXT)],
+            [KeyboardButton(text=GET_REPORT_TEXT)],
         ],
         resize_keyboard=True,
     )
@@ -43,6 +45,20 @@ async def send_grades(message: Message, start: datetime.date, end: datetime.date
         return
     text = await get_grades(start, end)
     await message.answer(text)
+
+
+async def send_report(message: Message):
+    try:
+        report = await fetch_report()
+    except Exception as e:
+        await message.answer(f"Ошибка при получении отчёта: {e}")
+        return
+    png = render_report_image(report)
+    if not png:
+        await message.answer("За период оценок нет")
+        return
+    await message.answer("📄 Отчёт об успеваемости")
+    await message.answer_photo(BufferedInputFile(png, filename="report.png"))
 
 
 @dp.message(CommandStart(), F.chat.type == "private")
@@ -73,6 +89,11 @@ async def on_grades_button(message: Message):
 async def on_grades_month_button(message: Message):
     today = datetime.date.today()
     await send_grades(message, today.replace(day=1), today, month=True)
+
+
+@dp.message(F.text == GET_REPORT_TEXT, F.chat.type == "private")
+async def on_report_button(message: Message):
+    await send_report(message)
 
 
 async def main():

@@ -6,7 +6,13 @@ import pytest
 from PIL import Image
 
 from grades import format_diary
-from renderer import render_diary_image, render_monthly_image
+from renderer import (
+    render_diary_image,
+    render_monthly_image,
+    render_report_image,
+)
+
+from renderer import REPORT_TITLE, _report_meta
 
 
 def _make_fake_diary():
@@ -205,3 +211,100 @@ def test_format_diary_via_get_grades_mock_uses_fetch_diary(tmp_path):
         )
         assert "Алгебра" in text
         assert "5️⃣" in text
+
+
+def _make_fake_report():
+    from netschoolapi_plus.schemas import StudentTotalReport, SubjectReport
+
+    return StudentTotalReport(
+        school="МОУ \"Лицей № 4\"",
+        student="Пронюшкин Егор Николаевич",
+        year="2026/2027",
+        period_start=datetime.date(2026, 9, 1),
+        period_end=datetime.date(2026, 11, 30),
+        term="1 триместр",
+        subjects=[
+            SubjectReport(
+                subject="Алгебра",
+                marks={
+                    datetime.date(2026, 9, 1): "5",
+                    datetime.date(2026, 9, 3): "н",
+                },
+                average=4.5,
+                final="4",
+            ),
+            SubjectReport(
+                subject="Физкультура",
+                marks={datetime.date(2026, 9, 2): "4"},
+                average=4.0,
+                final=None,
+            ),
+        ],
+    )
+
+
+def test_render_report_image_returns_png_bytes():
+    data = render_report_image(_make_fake_report())
+    assert isinstance(data, bytes)
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    img = Image.open(BytesIO(data))
+    assert img.width == 720
+    assert img.height > 100
+
+
+def test_render_report_image_writes_file(tmp_path):
+    out = tmp_path / "report.png"
+    data = render_report_image(_make_fake_report(), output=str(out))
+    assert out.exists()
+    assert out.read_bytes() == data
+
+
+def test_render_report_image_contains_gray_mark_for_non_numeric():
+    # «н» (не был) — серый кружок #95a5a6, средний балл и итоговая — колонки
+    data = render_report_image(_make_fake_report())
+    img = Image.open(BytesIO(data)).convert("RGB")
+    GRAY = (149, 165, 166)
+    found = 0
+    for y in range(img.height):
+        for x in range(img.width):
+            if img.getpixel((x, y)) == GRAY:
+                found += 1
+    assert found > 0
+
+
+def test_report_meta_does_not_contain_student_name():
+    meta = _report_meta(_make_fake_report())
+    assert "Пронюшкин" not in meta
+    assert "1 триместр" in meta
+    assert "2026" in meta
+
+
+def test_report_title_does_not_mention_attendance():
+    assert REPORT_TITLE == "Отчёт об успеваемости"
+
+
+@pytest.mark.asyncio
+async def test_fetch_report_calls_library_report_studenttotal(tmp_path):
+    from unittest.mock import AsyncMock, patch
+
+    fake_report = _make_fake_report()
+
+    with patch("grades.load_config") as mock_cfg, \
+         patch("grades.NetSchoolAPI") as mock_ns_cls:
+        mock_cfg.return_value = {
+            "ns_login": "user",
+            "ns_password": "pass",
+            "ns_school": "School",
+        }
+        mock_ns = AsyncMock()
+        mock_ns.report_studenttotal = AsyncMock(return_value=fake_report)
+        mock_ns.login = AsyncMock()
+        mock_ns.logout = AsyncMock()
+        mock_ns_cls.return_value = mock_ns
+
+        from grades import fetch_report
+        result = await fetch_report()
+        assert result.subjects == fake_report.subjects
+        mock_ns.login.assert_called_once()
+        mock_ns.report_studenttotal.assert_called_once()
+        mock_ns.logout.assert_called_once()

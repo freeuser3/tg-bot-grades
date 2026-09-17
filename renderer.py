@@ -14,6 +14,8 @@ GRADE_COLORS = {
     1: "#eb4d4b",
 }
 
+REPORT_TITLE = "Отчёт об успеваемости"
+
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
           "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -239,6 +241,158 @@ def render_monthly_image(diary, font_dir: Path | None = None, output: str | None
         weeks.append({"days": week["days"], "subjects": sorted(subjects)})
 
     img = _render_monthly_grid(weeks, Path(font_dir))
+    if output:
+        img.save(output)
+        return Path(output).read_bytes()
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _is_numeric_mark(mark: str) -> bool:
+    return mark.strip() in {"1", "2", "3", "4", "5"}
+
+
+def _report_meta(report) -> str:
+    return (
+        f"{report.term} · "
+        f"{report.period_start.day}.{report.period_start.month}.{report.period_start.year}"
+        f" — {report.period_end.day}.{report.period_end.month}.{report.period_end.year}"
+    )
+
+
+def _render_report_table(report, font_dir: Path) -> Image.Image:
+    W = 720
+    padding = 32
+    card_pad = 24
+    title_font = _font(FONT_BOLD, 32, font_dir)
+    header_font = _font(FONT_BOLD, 18, font_dir)
+    subject_font = _font(FONT_NORMAL, 18, font_dir)
+    meta_font = _font(FONT_NORMAL, 16, font_dir)
+    mark_size = 26
+    row_h = mark_size + 14
+    col_w = 40
+    subj_w = 210
+    avg_w = 52
+    final_w = 52
+
+    from collections import OrderedDict
+
+    month_map = OrderedDict()
+    for subject in report.subjects:
+        if not subject.marks:
+            continue
+        for day, mark in subject.marks.items():
+            key = (day.year, day.month)
+            month_map.setdefault(key, {"days": set(), "subjects": []})
+            month_map[key]["days"].add(day)
+        if subject.subject not in month_map[(day.year, day.month)]["subjects"]:
+            month_map[(day.year, day.month)]["subjects"].append(subject.subject)
+    for key in month_map:
+        month_map[key]["days"] = sorted(month_map[key]["days"], key=lambda d: d)
+    for key in month_map:
+        month_map[key]["subjects"].sort()
+
+    title_h = _text_height(title_font, "Отчёт об успеваемости")
+    meta_h = _text_height(meta_font, "Ag")
+    months = []
+    for (year, month), data in month_map.items():
+        months.append((year, month, data))
+    table_h = card_pad * 2 + _text_height(header_font, "Ag") + 8 + len(data["subjects"]) * row_h
+    total_h = (
+        28 + title_h + 8 + meta_h + 20
+        + sum(card_pad * 2 + _text_height(header_font, "Ag") + 8 + len(m["subjects"]) * row_h
+              for _, _, m in months)
+        + (len(months) - 1) * 16
+        + padding
+    )
+
+    img = Image.new("RGB", (W, total_h), "#f4f6fb")
+    dr = ImageDraw.Draw(img)
+    x0 = padding
+    y = 28
+
+    dr.text((x0, y), REPORT_TITLE, font=title_font, fill="#1c3d6e")
+    y += title_h + 8
+    meta = _report_meta(report)
+    dr.text((x0, y), meta, font=meta_font, fill="#5a6478")
+    y += meta_h + 20
+
+    grid_x = padding + card_pad + subj_w
+    avg_x = W - padding - card_pad - avg_w - final_w
+
+    for year, month, data in months:
+        n_subjects = max(len(data["subjects"]), 1)
+        gh = card_pad * 2 + _text_height(header_font, "Ag") + 8 + n_subjects * row_h
+        dr.rounded_rectangle([x0, y, x0 + W - 2 * padding, y + gh],
+                             radius=16, fill="#ffffff", outline="#dde3f0", width=1)
+        dr.line([(grid_x - 12, y + card_pad), (grid_x - 12, y + gh - card_pad)],
+                fill="#e3e8f2", width=1)
+        dr.line([(avg_x - 8, y + card_pad), (avg_x - 8, y + gh - card_pad)],
+                fill="#e3e8f2", width=1)
+
+        month_label = f"{MONTHS[month - 1].capitalize()} {year}"
+        dr.text((x0 + card_pad, y + card_pad), month_label,
+                font=header_font, fill="#2c5aa0")
+        hx = grid_x
+        for day in data["days"]:
+            label = str(day.day)
+            tw = dr.textlength(label, font=header_font)
+            dr.text((hx + (col_w - tw) / 2, y + card_pad), label,
+                    font=header_font, fill="#2c5aa0")
+            hx += col_w
+        cx = avg_x + (avg_w - dr.textlength("Ср.", font=header_font)) / 2
+        dr.text((cx, y + card_pad), "Ср.", font=header_font, fill="#2c5aa0")
+        fx = avg_x + avg_w + (final_w - dr.textlength("Итог", font=header_font)) / 2
+        dr.text((fx, y + card_pad), "Итог", font=header_font, fill="#2c5aa0")
+
+        ry = y + card_pad + _text_height(header_font, "Ag") + 8
+        by_subject = {}
+        for subject in report.subjects:
+            if subject.subject not in data["subjects"]:
+                continue
+            by_subject[subject.subject] = subject
+        for subject in data["subjects"]:
+            subj_obj = by_subject[subject]
+            dr.text((x0 + card_pad, ry), subject, font=subject_font, fill="#33415c")
+            sx = grid_x
+            for day in data["days"]:
+                mark = subj_obj.marks.get(day)
+                if mark is not None:
+                    if _is_numeric_mark(mark):
+                        _draw_mark(dr, sx + (col_w - mark_size) / 2, ry + (row_h - mark_size) / 2,
+                                   mark_size, int(mark), font_dir)
+                    else:
+                        col = "#95a5a6"
+                        mf = _font(FONT_BOLD, int(mark_size * 0.62), font_dir)
+                        dr.ellipse([sx + (col_w - mark_size) / 2, ry + (row_h - mark_size) / 2,
+                                    sx + (col_w - mark_size) / 2 + mark_size,
+                                    ry + (row_h - mark_size) / 2 + mark_size],
+                                   fill=col, outline="#ffffff", width=2)
+                        _center_text(dr, sx + (col_w - mark_size) / 2, ry + (row_h - mark_size) / 2,
+                                     mark_size, mark_size, mark, mf, "#ffffff")
+                sx += col_w
+            if subj_obj.average is not None:
+                avg_text = f"{subj_obj.average:.1f}".replace(".", ",")
+                tw = dr.textlength(avg_text, font=subject_font)
+                dr.text((avg_x + (avg_w - tw) / 2, ry), avg_text,
+                        font=subject_font, fill="#33415c")
+            if subj_obj.final:
+                tw = dr.textlength(subj_obj.final, font=subject_font)
+                dr.text((avg_x + avg_w + (final_w - tw) / 2, ry), subj_obj.final,
+                        font=subject_font, fill="#33415c")
+            ry += row_h
+        y += gh + 16
+
+    return img
+
+
+def render_report_image(report, font_dir: Path | None = None, output: str | None = None) -> bytes:
+    """Возвращает PNG-байты отчёта об успеваемости (таблицы по месяцам)."""
+    font_dir = font_dir or FONT_DIR
+    if not report.subjects or not any(s.marks for s in report.subjects):
+        return b""
+    img = _render_report_table(report, Path(font_dir))
     if output:
         img.save(output)
         return Path(output).read_bytes()
