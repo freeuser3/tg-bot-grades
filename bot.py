@@ -7,7 +7,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
-from grades import fetch_diary, fetch_report, get_grades, load_config
+from grades import fetch_diary, fetch_homework, fetch_report, get_grades, load_config
 from renderer import render_diary_image, render_monthly_image, render_report_image
 
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +17,7 @@ dp = Dispatcher()
 GET_GRADES_TEXT = "📊 Получить оценки"
 GET_GRADES_MONTH_TEXT = "📊 Оценки за месяц"
 GET_REPORT_TEXT = "📄 Отчёт об успеваемости"
+GET_HOMEWORK_TEXT = "📋 Домашние задания"
 
 
 def grades_keyboard() -> ReplyKeyboardMarkup:
@@ -25,6 +26,7 @@ def grades_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=GET_GRADES_TEXT)],
             [KeyboardButton(text=GET_GRADES_MONTH_TEXT)],
             [KeyboardButton(text=GET_REPORT_TEXT)],
+            [KeyboardButton(text=GET_HOMEWORK_TEXT)],
         ],
         resize_keyboard=True,
     )
@@ -94,6 +96,13 @@ async def on_grades_month_button(message: Message):
 @dp.message(F.text == GET_REPORT_TEXT, F.chat.type == "private")
 async def on_report_button(message: Message):
     await send_report(message)
+
+
+@dp.message(F.text == GET_HOMEWORK_TEXT, F.chat.type == "private")
+async def on_homework_button(message: Message):
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    text = await fetch_homework(tomorrow)
+    await message.answer(text)
 
 
 async def main():
