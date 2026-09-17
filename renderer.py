@@ -253,6 +253,23 @@ def _is_numeric_mark(mark: str) -> bool:
     return mark.strip() in {"1", "2", "3", "4", "5"}
 
 
+def _truncate_text(draw, text: str, fnt, max_w: int) -> str:
+    if draw.textlength(text, font=fnt) <= max_w:
+        return text
+    ellipsis = "…"
+    low, high = 1, len(text)
+    result = text[: max(1, len(text) - 1)] + ellipsis
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = text[:mid] + ellipsis
+        if draw.textlength(candidate, font=fnt) <= max_w:
+            result = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return result
+
+
 def _report_meta(report) -> str:
     return (
         f"{report.term} · "
@@ -354,7 +371,8 @@ def _render_report_table(report, font_dir: Path) -> Image.Image:
             by_subject[subject.subject] = subject
         for subject in data["subjects"]:
             subj_obj = by_subject[subject]
-            dr.text((x0 + card_pad, ry), subject, font=subject_font, fill="#33415c")
+            label = _truncate_text(dr, subject, subject_font, subj_w - 8)
+            dr.text((x0 + card_pad, ry), label, font=subject_font, fill="#33415c")
             sx = grid_x
             for day in data["days"]:
                 mark = subj_obj.marks.get(day)

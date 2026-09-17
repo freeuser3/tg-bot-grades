@@ -12,7 +12,7 @@ from renderer import (
     render_report_image,
 )
 
-from renderer import REPORT_TITLE, _report_meta
+from renderer import REPORT_TITLE, _report_meta, _truncate_text
 
 
 def _make_fake_diary():
@@ -281,6 +281,31 @@ def test_report_meta_does_not_contain_student_name():
 
 def test_report_title_does_not_mention_attendance():
     assert REPORT_TITLE == "Отчёт об успеваемости"
+
+
+def test_truncate_text_shortens_long_subject_to_fit_width():
+    from PIL import Image, ImageDraw, ImageFont
+    from renderer import _truncate_text
+
+    fnt = ImageFont.load_default(size=18)
+    img = Image.new("RGB", (500, 50))
+    dr = ImageDraw.Draw(img)
+    full = "Ин.яз./Английский язык"
+    subj_w = int(dr.textlength(full, font=fnt) * 0.5)
+    shortened = _truncate_text(dr, full, fnt, subj_w)
+    assert len(shortened) < len(full)
+    assert shortened.endswith("…")
+    assert dr.textlength(shortened, font=fnt) <= subj_w
+
+
+def test_truncate_text_keeps_short_subject_unchanged():
+    from PIL import Image, ImageDraw, ImageFont
+    from renderer import _truncate_text
+
+    fnt = ImageFont.load_default(size=18)
+    img = Image.new("RGB", (500, 50))
+    dr = ImageDraw.Draw(img)
+    assert _truncate_text(dr, "Алгебра", fnt, 210) == "Алгебра"
 
 
 @pytest.mark.asyncio
