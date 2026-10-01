@@ -311,6 +311,138 @@ def _week_blocks(days):
     return blocks
 
 
+def _report_layout() -> dict:
+    w, padding, card_pad = 720, 32, 24
+    subj_w, gap, avg_w = 240, 8, 52
+    inner_w = w - 2 * padding - 2 * card_pad
+    grid_w = inner_w - subj_w - gap - avg_w
+    grid_x = padding + card_pad + subj_w + gap
+    return {
+        "w": w,
+        "padding": padding,
+        "card_pad": card_pad,
+        "subj_w": subj_w,
+        "gap": gap,
+        "avg_w": avg_w,
+        "grid_w": grid_w,
+        "grid_x": grid_x,
+        "avg_x": grid_x + grid_w,
+        "card_right": padding + w - 2 * padding,
+    }
+
+
+def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
+                  *, with_header: bool) -> Image.Image:
+    layout = _report_layout()
+    padding = layout["padding"]
+    card_pad = layout["card_pad"]
+    subj_w = layout["subj_w"]
+    avg_w = layout["avg_w"]
+    grid_w = layout["grid_w"]
+    grid_x = layout["grid_x"]
+    avg_x = layout["avg_x"]
+
+    title_font = _font(FONT_BOLD, 26, font_dir)
+    month_font = _font(FONT_BOLD, 20, font_dir)
+    label_font = _font(FONT_BOLD, 18, font_dir)
+    weekday_font = _font(FONT_BOLD, 14, font_dir)
+    subject_font = _font(FONT_NORMAL, 18, font_dir)
+    meta_font = _font(FONT_NORMAL, 14, font_dir)
+
+    subjects = data["subjects"]
+    blocks = _week_blocks(data["days"])
+    max_days = max((len(block) for block in blocks), default=1)
+    col_w = min(56, grid_w // max_days)
+    mark_size = min(26, col_w - 12)
+    mark_font = _font(FONT_BOLD, int(mark_size * 0.62), font_dir)
+    row_h = mark_size + 14
+
+    weekday_h = _text_height(weekday_font, "Ag")
+    label_h = _text_height(label_font, "Ag")
+    hdr_h = weekday_h + 4 + label_h
+    block_h = card_pad * 2 + hdr_h + 8 + max(len(subjects), 1) * row_h
+
+    if with_header:
+        header_h = _text_height(title_font, "Ag") + 6 + _text_height(meta_font, "Ag") + 18
+    else:
+        header_h = _text_height(month_font, "Ag") + 18
+
+    total_h = (24 + header_h + len(blocks) * block_h
+               + max(len(blocks) - 1, 0) * 14 + padding)
+
+    img = Image.new("RGB", (layout["w"], total_h), "#f4f6fb")
+    dr = ImageDraw.Draw(img)
+    x0 = padding
+    y = 24
+
+    if with_header:
+        dr.text((x0, y), REPORT_TITLE, font=title_font, fill="#1c3d6e")
+        y += _text_height(title_font, "Ag") + 6
+        dr.text((x0, y), _report_meta(report), font=meta_font, fill="#5a6478")
+    else:
+        dr.text((x0, y), f"{MONTHS[month - 1].capitalize()} {year}",
+                font=month_font, fill="#2c5aa0")
+    y += header_h
+
+    by_subject = {s.subject: s for s in report.subjects}
+
+    for block in blocks:
+        dr.rounded_rectangle(
+            [x0, y, layout["card_right"], y + block_h],
+            radius=14, fill="#ffffff", outline="#dde3f0", width=1,
+        )
+        dr.line([(grid_x - 4, y + card_pad), (grid_x - 4, y + block_h - card_pad)],
+                fill="#e3e8f2", width=1)
+        dr.line([(avg_x - 4, y + card_pad), (avg_x - 4, y + block_h - card_pad)],
+                fill="#e3e8f2", width=1)
+
+        first, last = block[0], block[-1]
+        dr.text((x0 + card_pad, y + card_pad),
+                f"{first.day}–{last.day} {MONTHS[first.month - 1][:3]}.",
+                font=label_font, fill="#2c5aa0")
+
+        hy = y + card_pad
+        for index, day in enumerate(block):
+            cx = grid_x + index * col_w
+            weekday = DAYS_RU[day.weekday()]
+            dr.text((cx + (col_w - dr.textlength(weekday, font=weekday_font)) / 2, hy),
+                    weekday, font=weekday_font, fill="#8a94a8")
+            number = str(day.day)
+            dr.text((cx + (col_w - dr.textlength(number, font=label_font)) / 2,
+                     hy + weekday_h + 4), number, font=label_font, fill="#2c5aa0")
+
+        average_label = "Ср."
+        dr.text((avg_x + (avg_w - dr.textlength(average_label, font=weekday_font)) / 2,
+                 hy + (hdr_h - weekday_h) / 2),
+                average_label, font=weekday_font, fill="#2c5aa0")
+
+        ry = y + card_pad + hdr_h + 8
+        for name in subjects:
+            subject_obj = by_subject.get(name)
+            dr.text((x0 + card_pad, ry),
+                    _truncate_text(dr, name, subject_font, subj_w - 8),
+                    font=subject_font, fill="#33415c")
+            for index, day in enumerate(block):
+                mark = subject_obj.marks.get(day) if subject_obj else None
+                if mark is None:
+                    continue
+                mx = grid_x + index * col_w + (col_w - mark_size) / 2
+                my = ry + (row_h - mark_size) / 2
+                colour = GRADE_COLORS[int(mark)] if _is_numeric_mark(mark) else "#95a5a6"
+                dr.ellipse([mx, my, mx + mark_size, my + mark_size],
+                           fill=colour, outline="#ffffff", width=2)
+                _center_text(dr, mx, my, mark_size, mark_size, mark,
+                             mark_font, "#ffffff")
+            if subject_obj is not None and subject_obj.average is not None:
+                average = f"{subject_obj.average:.1f}".replace(".", ",")
+                dr.text((avg_x + (avg_w - dr.textlength(average, font=subject_font)) / 2, ry),
+                        average, font=subject_font, fill="#33415c")
+            ry += row_h
+        y += block_h + 14
+
+    return img
+
+
 def _render_report_table(report, font_dir: Path) -> Image.Image:
     W = 720
     padding = 32

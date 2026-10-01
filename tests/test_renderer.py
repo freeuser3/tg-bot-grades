@@ -450,3 +450,198 @@ def test_week_blocks_keeps_saturday_and_sunday_in_one_block():
 
     assert len(blocks) == 1
     assert blocks[0] == days
+
+
+def _realistic_report():
+    names = [
+        "Русский язык", "Литература", "Алгебра", "Геометрия",
+        "Ин.яз./Английский язык", "Физика", "Химия", "Биология",
+        "История", "Обществознание", "Информатика", "Физкультура",
+        "Вероятность и статистика", "Труд (технология)",
+    ]
+    pool = ["5", "4", "3", "5", "н", "4", "5", "4"]
+    subjects = []
+    for index, name in enumerate(names):
+        marks = {}
+        counter = 0
+        for day in _weekdays(2026, 9):
+            marks[day] = pool[(counter + index * 3) % len(pool)]
+            counter += 1
+        subjects.append(_subject(name, marks, average=4.0 + (index % 5) / 10))
+    return _school_report(subjects)
+
+
+def _render_september():
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month
+    report = _realistic_report()
+    grouped = _group_by_month(report)
+    return _render_month(report, 2026, 9, grouped[(2026, 9)],
+                         Path(FONT_DIR), with_header=True)
+
+
+def test_month_image_has_no_pixels_outside_the_card():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _render_september().convert("RGB")
+    background = (244, 246, 251)
+    offenders = [
+        x
+        for y in range(img.height)
+        for x in range(layout["card_right"] + 1, img.width)
+        if img.getpixel((x, y)) != background
+    ]
+    assert offenders == []
+
+
+def test_month_image_fits_telegram_dimension_limit():
+    img = _render_september()
+    assert img.width + img.height <= 10000
+
+
+def test_month_image_has_no_column_after_average():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _render_september().convert("RGB")
+    allowed = {(244, 246, 251), (255, 255, 255), (221, 227, 240), (227, 232, 242)}
+    offenders = [
+        x
+        for y in range(img.height)
+        for x in range(layout["avg_x"] + layout["avg_w"], img.width)
+        if img.getpixel((x, y)) not in allowed
+    ]
+    assert offenders == []
+
+
+def test_month_image_keeps_subject_names_inside_their_column():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _render_september().convert("RGB")
+    subject_text = (51, 65, 92)
+    offenders = [
+        x
+        for y in range(img.height)
+        for x in range(layout["grid_x"] - 4, layout["avg_x"])
+        if img.getpixel((x, y)) == subject_text
+    ]
+    assert offenders == []
+
+
+def test_month_image_renders_longest_known_subject_name_untruncated():
+    from PIL import Image as PILImage, ImageDraw
+    from pathlib import Path
+    from renderer import FONT_DIR, FONT_NORMAL, _font, _report_layout, _truncate_text
+
+    layout = _report_layout()
+    font = _font(FONT_NORMAL, 18, Path(FONT_DIR))
+    scratch = PILImage.new("RGB", (720, 60))
+    draw = ImageDraw.Draw(scratch)
+    assert _truncate_text(draw, "Вероятность и статистика", font,
+                          layout["subj_w"] - 8) == "Вероятность и статистика"
+    assert _truncate_text(draw, "Ин.яз./Английский язык", font,
+                          layout["subj_w"] - 8) == "Ин.яз./Английский язык"
+
+
+def test_month_image_renders_non_numeric_mark_as_gray_circle():
+    img = _render_september().convert("RGB")
+    gray = (149, 165, 166)
+    assert any(
+        img.getpixel((x, y)) == gray
+        for y in range(img.height)
+        for x in range(img.width)
+    )
+
+
+def test_month_image_draws_weekday_above_day_number():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _render_september().convert("RGB")
+    weekday_grey = (138, 148, 168)
+    number_blue = (44, 90, 160)
+
+    def topmost(colour, x_range):
+        ys = [y for y in range(img.height) for x in x_range
+              if img.getpixel((x, y)) == colour]
+        return min(ys) if ys else None
+
+    column = range(layout["grid_x"], layout["grid_x"] + 56)
+    weekday_top = topmost(weekday_grey, column)
+    number_top = topmost(number_blue, column)
+
+    assert weekday_top is not None
+    assert number_top is not None
+    assert weekday_top < number_top
+
+
+def test_six_day_week_narrows_columns_without_touching_average_column():
+    from pathlib import Path
+    import datetime
+    from renderer import (FONT_DIR, _group_by_month, _render_month,
+                          _report_layout)
+
+    days = {datetime.date(2026, 9, d): "5" for d in (7, 8, 9, 10, 11, 12, 13)}
+    report = _school_report([_subject("Алгебра", days, average=5.0)])
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    layout = _report_layout()
+    mark_colors = {
+        (39, 174, 96), (106, 176, 76), (249, 202, 36),
+        (240, 147, 43), (235, 77, 75), (149, 165, 166),
+    }
+    offenders = [
+        x
+        for y in range(img.height)
+        for x in range(layout["avg_x"] - 4, img.width)
+        if img.getpixel((x, y)) in mark_colors
+    ]
+    assert offenders == []
+
+
+def test_very_long_subject_name_is_truncated_and_stays_inside_column():
+    from pathlib import Path
+    import datetime
+    from renderer import (FONT_DIR, _group_by_month, _render_month,
+                          _report_layout)
+
+    long_name = "Основы мировой художественной культуры и музыкальной литературы"
+    report = _school_report([
+        _subject(long_name, {datetime.date(2026, 9, 1): "5"}, average=5.0),
+    ])
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    layout = _report_layout()
+    subject_text = (51, 65, 92)
+    offenders = [
+        x
+        for y in range(img.height)
+        for x in range(layout["grid_x"] - 4, layout["avg_x"])
+        if img.getpixel((x, y)) == subject_text
+    ]
+    assert offenders == []
+
+
+def test_month_label_is_drawn_instead_of_title_when_header_is_off():
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month
+
+    report = _realistic_report()
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=False).convert("RGB")
+
+    title_colour = (28, 61, 110)
+    assert not any(
+        img.getpixel((x, y)) == title_colour
+        for y in range(img.height)
+        for x in range(img.width)
+    )
+    header_blue = (44, 90, 160)
+    assert any(
+        img.getpixel((x, y)) == header_blue
+        for y in range(img.height)
+        for x in range(img.width)
+    )
