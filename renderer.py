@@ -299,6 +299,18 @@ def _group_by_month(report) -> "OrderedDict":
     return grouped
 
 
+def _week_blocks(days):
+    blocks = []
+    current_key = None
+    for day in days:
+        key = day.isocalendar()[:2]
+        if key != current_key:
+            blocks.append([])
+            current_key = key
+        blocks[-1].append(day)
+    return blocks
+
+
 def _render_report_table(report, font_dir: Path) -> Image.Image:
     W = 720
     padding = 32

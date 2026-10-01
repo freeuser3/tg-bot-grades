@@ -412,3 +412,41 @@ def test_group_by_month_collects_each_month_days_independently():
 def test_group_by_month_returns_empty_for_report_without_marks():
     from renderer import _group_by_month
     assert _group_by_month(_school_report([])) == {}
+
+
+def test_week_blocks_splits_september_weekdays_into_iso_weeks():
+    import datetime
+    from renderer import _week_blocks
+
+    days = _weekdays(2026, 9)
+    blocks = _week_blocks(days)
+
+    assert len(days) == 22
+    assert [len(b) for b in blocks] == [4, 5, 5, 5, 3]
+    assert blocks[0] == [
+        datetime.date(2026, 9, 1),
+        datetime.date(2026, 9, 2),
+        datetime.date(2026, 9, 3),
+        datetime.date(2026, 9, 4),
+    ]
+    assert blocks[-1] == [
+        datetime.date(2026, 9, 28),
+        datetime.date(2026, 9, 29),
+        datetime.date(2026, 9, 30),
+    ]
+
+
+def test_week_blocks_returns_empty_list_for_no_days():
+    from renderer import _week_blocks
+    assert _week_blocks([]) == []
+
+
+def test_week_blocks_keeps_saturday_and_sunday_in_one_block():
+    import datetime
+    from renderer import _week_blocks
+
+    days = [datetime.date(2026, 9, d) for d in (7, 8, 9, 10, 11, 12, 13)]
+    blocks = _week_blocks(days)
+
+    assert len(blocks) == 1
+    assert blocks[0] == days
