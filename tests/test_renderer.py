@@ -333,3 +333,82 @@ async def test_fetch_report_calls_library_report_studenttotal(tmp_path):
         mock_ns.login.assert_called_once()
         mock_ns.report_studenttotal.assert_called_once()
         mock_ns.logout.assert_called_once()
+
+
+def _weekdays(year: int, month: int) -> list:
+    import datetime
+    day = datetime.date(year, month, 1)
+    out = []
+    while day.month == month:
+        if day.weekday() < 5:
+            out.append(day)
+        day += datetime.timedelta(days=1)
+    return out
+
+
+def _school_report(subjects: list, period=(2026, 9, 2026, 11)):
+    import datetime
+    from netschoolapi_plus.schemas import StudentTotalReport
+    start_y, start_m, end_y, end_m = period
+    return StudentTotalReport(
+        school='МОУ "Лицей № 4"',
+        student="Фамилия Имя Отчество",
+        year="2026/2027",
+        period_start=datetime.date(start_y, start_m, 1),
+        period_end=datetime.date(end_y, end_m, 28),
+        term="1 триместр",
+        subjects=subjects,
+    )
+
+
+def _subject(name: str, marks: dict, average=4.5, final=None):
+    from netschoolapi_plus.schemas import SubjectReport
+    return SubjectReport(subject=name, marks=marks, average=average, final=final)
+
+
+def test_group_by_month_places_subject_in_every_month_it_has_marks():
+    import datetime
+    from renderer import _group_by_month
+
+    report = _school_report([
+        _subject("Алгебра", {
+            datetime.date(2026, 9, 3): "5",
+            datetime.date(2026, 10, 10): "4",
+        }),
+        _subject("Литература", {
+            datetime.date(2026, 9, 3): "5",
+            datetime.date(2026, 9, 10): "4",
+        }),
+    ])
+
+    grouped = _group_by_month(report)
+
+    assert grouped[(2026, 9)]["subjects"] == ["Алгебра", "Литература"]
+    assert grouped[(2026, 10)]["subjects"] == ["Алгебра"]
+    assert grouped[(2026, 9)]["days"] == [
+        datetime.date(2026, 9, 3),
+        datetime.date(2026, 9, 10),
+    ]
+    assert list(grouped) == [(2026, 9), (2026, 10)]
+
+
+def test_group_by_month_keeps_subject_row_that_has_no_marks_in_that_month():
+    import datetime
+    from renderer import _group_by_month
+
+    report = _school_report([
+        _subject("Алгебра", {
+            datetime.date(2026, 9, 1): "5",
+            datetime.date(2026, 10, 5): "4",
+        }),
+    ])
+
+    grouped = _group_by_month(report)
+
+    assert grouped[(2026, 10)]["subjects"] == ["Алгебра"]
+    assert grouped[(2026, 10)]["days"] == [datetime.date(2026, 10, 5)]
+
+
+def test_group_by_month_returns_empty_for_report_without_marks():
+    from renderer import _group_by_month
+    assert _group_by_month(_school_report([])) == {}

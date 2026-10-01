@@ -278,6 +278,27 @@ def _report_meta(report) -> str:
     )
 
 
+def _group_by_month(report) -> "OrderedDict":
+    from collections import OrderedDict
+
+    buckets = OrderedDict()
+    for subject in report.subjects:
+        for day in subject.marks:
+            entry = buckets.setdefault((day.year, day.month), {"days": set(), "subjects": []})
+            entry["days"].add(day)
+            if subject.subject not in entry["subjects"]:
+                entry["subjects"].append(subject.subject)
+
+    grouped = OrderedDict()
+    for key in sorted(buckets):
+        entry = buckets[key]
+        grouped[key] = {
+            "days": sorted(entry["days"]),
+            "subjects": sorted(entry["subjects"]),
+        }
+    return grouped
+
+
 def _render_report_table(report, font_dir: Path) -> Image.Image:
     W = 720
     padding = 32
