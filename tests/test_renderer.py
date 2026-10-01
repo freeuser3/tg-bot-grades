@@ -11,8 +11,6 @@ from renderer import (
     render_monthly_image,
 )
 
-from renderer import _truncate_text
-
 
 def _make_fake_diary():
     from netschoolapi_plus.schemas import Diary, Day, Lesson, Assignment
