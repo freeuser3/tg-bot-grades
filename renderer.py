@@ -443,6 +443,21 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
     return img
 
 
+def render_report_images(report, font_dir: Path | None = None) -> list[bytes]:
+    font_dir = Path(font_dir or FONT_DIR)
+    if not report.subjects or not any(s.marks for s in report.subjects):
+        return []
+
+    images = []
+    for index, ((year, month), data) in enumerate(_group_by_month(report).items()):
+        img = _render_month(report, year, month, data, font_dir,
+                            with_header=(index == 0))
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        images.append(buf.getvalue())
+    return images
+
+
 def _render_report_table(report, font_dir: Path) -> Image.Image:
     W = 720
     padding = 32

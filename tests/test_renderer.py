@@ -710,3 +710,124 @@ def test_month_label_is_drawn_instead_of_title_when_header_is_off():
     ]
     assert label_xs
     assert max(label_xs) < _report_layout()["avg_x"]
+
+
+def test_group_by_month_sorts_subjects_alphabetically_not_in_report_order():
+    import datetime
+    from renderer import _group_by_month
+
+    report = _school_report([
+        _subject("Русский язык", {datetime.date(2026, 9, 1): "5"}),
+        _subject("Алгебра", {datetime.date(2026, 9, 2): "4"}),
+    ])
+
+    grouped = _group_by_month(report)
+
+    assert grouped[(2026, 9)]["subjects"] == ["Алгебра", "Русский язык"]
+
+
+def _trimester_report():
+    marks = {}
+    for month in (9, 10, 11):
+        for day in _weekdays(2026, month):
+            marks[day] = ["5", "4", "3", "н"][day.day % 4]
+    return _school_report([_subject("Русский язык", marks, average=4.6),
+                           _subject("Алгебра", marks, average=4.5)])
+
+
+def test_render_report_images_returns_one_png_per_month():
+    from renderer import render_report_images
+    images = render_report_images(_trimester_report())
+    assert len(images) == 3
+    for data in images:
+        assert isinstance(data, bytes)
+        assert data[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_render_report_images_orders_months_chronologically():
+    import datetime
+    from io import BytesIO
+    from PIL import Image
+    from renderer import render_report_images
+
+    subject = _subject("Алгебра", {datetime.date(2026, 11, 3): "5",
+                                    datetime.date(2026, 9, 1): "4",
+                                    datetime.date(2026, 10, 2): "3"}, average=4.0)
+    images = render_report_images(_school_report([subject]))
+
+    assert len(images) == 3
+    first = Image.open(BytesIO(images[0])).convert("RGB")
+    assert any(first.getpixel((x, y)) == (28, 61, 110)
+               for y in range(first.height) for x in range(first.width))
+    for data in images[1:]:
+        later = Image.open(BytesIO(data)).convert("RGB")
+        assert not any(later.getpixel((x, y)) == (28, 61, 110)
+                       for y in range(later.height) for x in range(later.width))
+
+
+def test_render_report_images_puts_each_month_on_its_own_image():
+    import datetime
+    from io import BytesIO
+    from pathlib import Path
+    from PIL import Image
+    from renderer import (FONT_DIR, _group_by_month, _render_month,
+                          render_report_images)
+
+    subject = _subject("Алгебра", {datetime.date(2026, 11, 3): "5",
+                                    datetime.date(2026, 9, 1): "4",
+                                    datetime.date(2026, 10, 2): "3"}, average=4.0)
+    report = _school_report([subject])
+    images = render_report_images(report)
+    grouped = _group_by_month(report)
+
+    assert len(images) == 3
+    for index, month in enumerate((9, 10, 11)):
+        expected = _render_month(report, 2026, month, grouped[(2026, month)],
+                                 Path(FONT_DIR),
+                                 with_header=(index == 0)).convert("RGB")
+        actual = Image.open(BytesIO(images[index])).convert("RGB")
+        assert actual.tobytes() == expected.tobytes(), month
+
+
+def test_render_report_images_returns_single_image_for_one_month():
+    import datetime
+    from renderer import render_report_images
+    report = _school_report([
+        _subject("Алгебра", {datetime.date(2026, 11, 3): "5"}, average=5.0),
+    ], period=(2026, 11, 2026, 11))
+    assert len(render_report_images(report)) == 1
+
+
+def test_render_report_images_returns_empty_list_for_report_without_marks():
+    from renderer import render_report_images
+    assert render_report_images(_school_report([])) == []
+
+
+def test_render_report_images_returns_empty_list_when_all_marks_are_empty():
+    from renderer import render_report_images
+    report = _school_report([_subject("Алгебра", {}, average=None)])
+    assert render_report_images(report) == []
+
+
+def test_render_report_images_accepts_custom_font_dir():
+    from pathlib import Path
+    from renderer import FONT_DIR, render_report_images
+    images = render_report_images(_realistic_report(), font_dir=Path(FONT_DIR))
+    assert len(images) == 1
+
+
+def test_render_report_images_uses_the_font_dir_it_is_given(tmp_path):
+    from renderer import render_report_images
+    with pytest.raises(OSError):
+        render_report_images(_realistic_report(), font_dir=tmp_path / "fonts")
+
+
+def test_report_images_fit_telegram_dimension_limit():
+    from io import BytesIO
+    from PIL import Image
+    from renderer import render_report_images
+    images = render_report_images(_realistic_report())
+    assert len(images) == 1
+    for data in images:
+        img = Image.open(BytesIO(data))
+        assert img.width + img.height <= 10000
