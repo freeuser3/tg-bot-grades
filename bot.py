@@ -8,7 +8,7 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from grades import fetch_diary, fetch_homework, fetch_report, get_grades, load_config
-from renderer import render_diary_image, render_monthly_image, render_report_image
+from renderer import render_diary_image, render_monthly_image, render_report_images
 
 logging.basicConfig(level=logging.INFO)
 config = load_config()
@@ -55,12 +55,15 @@ async def send_report(message: Message):
     except Exception as e:
         await message.answer(f"Ошибка при получении отчёта: {e}")
         return
-    png = render_report_image(report)
-    if not png:
+    images = render_report_images(report)
+    if not images:
         await message.answer("За период оценок нет")
         return
     await message.answer("📄 Отчёт об успеваемости")
-    await message.answer_photo(BufferedInputFile(png, filename="report.png"))
+    for index, png in enumerate(images, start=1):
+        await message.answer_photo(
+            BufferedInputFile(png, filename=f"report_{index}.png")
+        )
 
 
 @dp.message(CommandStart(), F.chat.type == "private")

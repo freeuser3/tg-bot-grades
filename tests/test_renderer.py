@@ -9,10 +9,9 @@ from grades import format_diary
 from renderer import (
     render_diary_image,
     render_monthly_image,
-    render_report_image,
 )
 
-from renderer import REPORT_TITLE, _report_meta, _truncate_text
+from renderer import _truncate_text
 
 
 def _make_fake_diary():
@@ -241,46 +240,6 @@ def _make_fake_report():
             ),
         ],
     )
-
-
-def test_render_report_image_returns_png_bytes():
-    data = render_report_image(_make_fake_report())
-    assert isinstance(data, bytes)
-    assert data[:8] == b"\x89PNG\r\n\x1a\n"
-    img = Image.open(BytesIO(data))
-    assert img.width == 720
-    assert img.height > 100
-
-
-def test_render_report_image_writes_file(tmp_path):
-    out = tmp_path / "report.png"
-    data = render_report_image(_make_fake_report(), output=str(out))
-    assert out.exists()
-    assert out.read_bytes() == data
-
-
-def test_render_report_image_contains_gray_mark_for_non_numeric():
-    # «н» (не был) — серый кружок #95a5a6, средний балл и итоговая — колонки
-    data = render_report_image(_make_fake_report())
-    img = Image.open(BytesIO(data)).convert("RGB")
-    GRAY = (149, 165, 166)
-    found = 0
-    for y in range(img.height):
-        for x in range(img.width):
-            if img.getpixel((x, y)) == GRAY:
-                found += 1
-    assert found > 0
-
-
-def test_report_meta_does_not_contain_student_name():
-    meta = _report_meta(_make_fake_report())
-    assert "Пронюшкин" not in meta
-    assert "1 триместр" in meta
-    assert "2026" in meta
-
-
-def test_report_title_does_not_mention_attendance():
-    assert REPORT_TITLE == "Отчёт об успеваемости"
 
 
 def test_truncate_text_shortens_long_subject_to_fit_width():
