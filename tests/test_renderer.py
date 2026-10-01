@@ -392,7 +392,7 @@ def test_group_by_month_places_subject_in_every_month_it_has_marks():
     assert list(grouped) == [(2026, 9), (2026, 10)]
 
 
-def test_group_by_month_keeps_subject_row_that_has_no_marks_in_that_month():
+def test_group_by_month_collects_each_month_days_independently():
     import datetime
     from renderer import _group_by_month
 
