@@ -564,7 +564,7 @@ def test_month_image_draws_weekday_above_day_number():
               if img.getpixel((x, y)) == colour]
         return min(ys) if ys else None
 
-    column = range(layout["grid_x"], layout["grid_x"] + 56)
+    column = range(layout["grid_x"], layout["grid_x"] + 60)
     weekday_top = topmost(weekday_grey, column)
     number_top = topmost(number_blue, column)
 
@@ -573,7 +573,7 @@ def test_month_image_draws_weekday_above_day_number():
     assert weekday_top < number_top
 
 
-def test_six_day_week_narrows_columns_without_touching_average_column():
+def test_seven_day_week_keeps_marks_clear_of_average_column():
     from pathlib import Path
     import datetime
     from renderer import (FONT_DIR, _group_by_month, _render_month,
@@ -599,6 +599,38 @@ def test_six_day_week_narrows_columns_without_touching_average_column():
     assert offenders == []
 
 
+def test_widest_week_block_narrows_columns_to_fit_whole_grid():
+    from pathlib import Path
+    import datetime
+    from renderer import (FONT_DIR, _group_by_month, _render_month,
+                          _report_layout)
+
+    days = {datetime.date(2026, 9, d): "5" for d in (7, 8, 9, 10, 11, 12, 13)}
+    report = _school_report([_subject("Алгебра", days, average=5.0)])
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    layout = _report_layout()
+    number_blue = (44, 90, 160)
+    xs = sorted({x for y in range(img.height) for x in range(layout["grid_x"], layout["avg_x"])
+                 if img.getpixel((x, y)) == number_blue})
+
+    groups = []
+    for x in xs:
+        if groups and x - groups[-1][-1] <= 10:
+            groups[-1].append(x)
+        else:
+            groups.append([x])
+    assert len(groups) == 7
+
+    centres = [(g[0] + g[-1]) / 2 for g in groups]
+    gaps = [round(centres[i + 1] - centres[i]) for i in range(6)]
+    expected = layout["grid_w"] // 7
+    assert all(abs(gap - expected) <= 1 for gap in gaps), gaps
+    assert max(groups[-1]) < layout["avg_x"] - 4
+
+
 def test_very_long_subject_name_is_truncated_and_stays_inside_column():
     from pathlib import Path
     import datetime
@@ -614,6 +646,7 @@ def test_very_long_subject_name_is_truncated_and_stays_inside_column():
                         Path(FONT_DIR), with_header=True).convert("RGB")
 
     layout = _report_layout()
+    name_column = range(layout["padding"] + layout["card_pad"], layout["grid_x"] - 4)
     subject_text = (51, 65, 92)
     offenders = [
         x
@@ -622,6 +655,11 @@ def test_very_long_subject_name_is_truncated_and_stays_inside_column():
         if img.getpixel((x, y)) == subject_text
     ]
     assert offenders == []
+    assert any(
+        img.getpixel((x, y)) == subject_text
+        for y in range(img.height)
+        for x in name_column
+    )
 
 
 def test_month_image_keeps_bottom_padding_for_both_header_variants():
@@ -648,7 +686,7 @@ def test_month_image_keeps_bottom_padding_for_both_header_variants():
 
 def test_month_label_is_drawn_instead_of_title_when_header_is_off():
     from pathlib import Path
-    from renderer import FONT_DIR, _group_by_month, _render_month
+    from renderer import FONT_DIR, _group_by_month, _render_month, _report_layout
 
     report = _realistic_report()
     grouped = _group_by_month(report)
@@ -661,9 +699,14 @@ def test_month_label_is_drawn_instead_of_title_when_header_is_off():
         for y in range(img.height)
         for x in range(img.width)
     )
+
     header_blue = (44, 90, 160)
-    assert any(
-        img.getpixel((x, y)) == header_blue
-        for y in range(img.height)
+    label_band = range(0, 62)
+    label_xs = [
+        x
+        for y in label_band
         for x in range(img.width)
-    )
+        if img.getpixel((x, y)) == header_blue
+    ]
+    assert label_xs
+    assert max(label_xs) < _report_layout()["avg_x"]
