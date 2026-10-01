@@ -377,8 +377,8 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
 
     if with_header:
         dr.text((x0, y), REPORT_TITLE, font=title_font, fill="#1c3d6e")
-        y += _text_height(title_font, "Ag") + 6
-        dr.text((x0, y), _report_meta(report), font=meta_font, fill="#5a6478")
+        dr.text((x0, y + _text_height(title_font, "Ag") + 6), _report_meta(report),
+                font=meta_font, fill="#5a6478")
     else:
         dr.text((x0, y), f"{MONTHS[month - 1].capitalize()} {year}",
                 font=month_font, fill="#2c5aa0")

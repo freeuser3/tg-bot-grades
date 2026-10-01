@@ -624,6 +624,28 @@ def test_very_long_subject_name_is_truncated_and_stays_inside_column():
     assert offenders == []
 
 
+def test_month_image_keeps_bottom_padding_for_both_header_variants():
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month, _report_layout
+
+    layout = _report_layout()
+    report = _realistic_report()
+    grouped = _group_by_month(report)
+    background = (244, 246, 251)
+
+    for with_header in (True, False):
+        img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                            Path(FONT_DIR), with_header=with_header).convert("RGB")
+        below_last_card = range(img.height - layout["padding"] + 1, img.height)
+        offenders = [
+            (x, y)
+            for y in below_last_card
+            for x in range(img.width)
+            if img.getpixel((x, y)) != background
+        ]
+        assert offenders == [], f"content reaches the bottom padding with_header={with_header}"
+
+
 def test_month_label_is_drawn_instead_of_title_when_header_is_off():
     from pathlib import Path
     from renderer import FONT_DIR, _group_by_month, _render_month
