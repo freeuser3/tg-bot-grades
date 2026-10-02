@@ -78,7 +78,7 @@
 python -m pytest -q
 ```
 
-Ожидание: 57 passed.
+Ожидание: 61 passed.
 
 ## Обновление на сервере (Debian)
 
@@ -95,7 +95,7 @@ pip install -r requirements.txt
 pip uninstall -y netschoolapi   # если установлен
 
 # 4. Прогнать тесты и запустить
-python -m pytest -q             # ожидание: 57 passed
+python -m pytest -q             # ожидание: 61 passed
 python bot.py
 ```
 
