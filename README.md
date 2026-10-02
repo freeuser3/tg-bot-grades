@@ -70,7 +70,7 @@
 - `fonts/` — бандл шрифтов (NotoSans-Regular/Bold/Italic)
 - `config.example.json` — шаблон конфигурации
 - `config.json` — реальные данные (не в git)
-- `tests/` — `test_grades.py`, `test_renderer.py`
+- `tests/` — `test_grades.py`, `test_renderer.py`, `test_bot.py`
 
 ## Тесты
 
@@ -78,7 +78,7 @@
 python -m pytest -q
 ```
 
-Ожидание: 61 passed.
+Ожидание: 77 passed.
 
 ## Обновление на сервере (Debian)
 
@@ -95,7 +95,7 @@ pip install -r requirements.txt
 pip uninstall -y netschoolapi   # если установлен
 
 # 4. Прогнать тесты и запустить
-python -m pytest -q             # ожидание: 61 passed
+python -m pytest -q             # ожидание: 77 passed
 python bot.py
 ```
 
