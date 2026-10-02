@@ -872,3 +872,143 @@ def test_report_images_fit_telegram_dimension_limit():
     for data in images:
         img = Image.open(BytesIO(data))
         assert img.width + img.height <= 10000
+
+
+def _report_without_period(subjects):
+    from netschoolapi_plus.schemas import StudentTotalReport
+    return StudentTotalReport(
+        school='МОУ "Лицей № 4"',
+        student="Фамилия Имя Отчество",
+        year="2026/2027",
+        period_start=None,
+        period_end=None,
+        term="1 триместр",
+        subjects=subjects,
+    )
+
+
+def test_report_meta_survives_missing_period_bounds():
+    from renderer import _report_meta
+    report = _report_without_period([
+        _subject("Алгебра", {datetime.date(2026, 9, 3): "5"}),
+    ])
+    meta = _report_meta(report)
+    assert "1 триместр" in meta
+    assert "None" not in meta
+
+
+def test_render_report_images_renders_when_period_bounds_are_missing():
+    from io import BytesIO
+    from PIL import Image
+    from renderer import render_report_images
+    report = _report_without_period([
+        _subject("Алгебра", {datetime.date(2026, 9, 3): "5",
+                              datetime.date(2026, 9, 4): "4"}),
+    ])
+    images = render_report_images(report)
+    assert len(images) == 1
+    assert Image.open(BytesIO(images[0])).width == 720
+
+
+def _rgb(hex_color: str) -> tuple:
+    return tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _grade_colors(*grades):
+    from renderer import GRADE_COLORS
+    return {_rgb(GRADE_COLORS[g]) for g in grades}
+
+
+NON_NUMERIC = (149, 165, 166)
+
+
+def _cell_image(marks: dict, subjects=None):
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month
+    if subjects is None:
+        subjects = [_subject("Алгебра", marks, average=4.5)]
+    report = _school_report(subjects)
+    grouped = _group_by_month(report)
+    return _render_month(report, 2026, 9, grouped[(2026, 9)],
+                         Path(FONT_DIR), with_header=True).convert("RGB")
+
+
+def _color_bbox(img, colors):
+    xs = []
+    ys = []
+    for y in range(img.height):
+        for x in range(img.width):
+            if img.getpixel((x, y)) in colors:
+                xs.append(x)
+                ys.append(y)
+    if not xs:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("5", ["5"]),
+    ("5/4", ["5", "4"]),
+    ("5 4", ["5", "4"]),
+    ("5,4", ["5", "4"]),
+    ("н/б", ["н", "б"]),
+    ("осв", ["осв"]),
+    ("", []),
+])
+def test_split_marks_separates_several_marks_in_one_cell(value, expected):
+    from renderer import _split_marks
+    assert _split_marks(value) == expected
+
+
+def test_two_marks_in_one_day_share_a_single_circle():
+    from renderer import _report_layout
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+                         _grade_colors(5))
+    pair = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4"}),
+                       _grade_colors(5, 4))
+    assert single is not None
+    assert pair is not None
+    assert pair[0] - single[0] <= 3 and single[2] - pair[2] <= 3, (single, pair)
+    assert (pair[2] - pair[0]) - (single[2] - single[0]) <= 4
+    layout = _report_layout()
+    assert layout["padding"] < pair[0] and pair[2] < layout["card_right"]
+
+
+def test_three_marks_in_one_day_share_a_single_circle():
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+                         _grade_colors(5))
+    triple = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3"}),
+                         _grade_colors(5, 4, 3))
+    assert triple is not None
+    assert triple[0] - single[0] <= 3 and single[2] - triple[2] <= 3, (single, triple)
+
+
+def test_four_marks_in_one_day_draw_a_pill_wider_than_a_circle():
+    from renderer import _report_layout
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+                         _grade_colors(5))
+    pill = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3/2"}),
+                       {NON_NUMERIC})
+    assert pill is not None
+    assert pill[2] - pill[0] - (single[2] - single[0]) > 20
+    layout = _report_layout()
+    assert pill[0] > layout["grid_x"] - 4 and pill[2] < layout["avg_x"]
+
+
+def test_two_subject_rows_with_the_same_name_keep_every_mark():
+    merged = _cell_image(
+        {},
+        subjects=[
+            _subject("Алгебра", {datetime.date(2026, 9, 1): "5"}, average=4.5),
+            _subject("Алгебра", {datetime.date(2026, 9, 2): "4"}, average=4.5),
+        ])
+    assert _color_bbox(merged, _grade_colors(5)) is not None
+    assert _color_bbox(merged, _grade_colors(4)) is not None
+    single_row = _cell_image(
+        {},
+        subjects=[_subject("Алгебра", {datetime.date(2026, 9, 1): "5",
+                                       datetime.date(2026, 9, 2): "4"},
+                           average=4.5)])
+    assert single_row.height == _cell_image(
+        {}, subjects=[_subject("Алгебра", {datetime.date(2026, 9, 1): "5"},
+                               average=4.5)]).height

@@ -1,4 +1,5 @@
 import datetime
+import math
 from io import BytesIO
 from pathlib import Path
 
@@ -271,10 +272,15 @@ def _truncate_text(draw, text: str, fnt, max_w: int) -> str:
 
 
 def _report_meta(report) -> str:
+    def _fmt(day) -> str:
+        return f"{day.day}.{day.month}.{day.year}"
+
+    if report.period_start is None or report.period_end is None:
+        return report.term or ""
+
     return (
         f"{report.term} · "
-        f"{report.period_start.day}.{report.period_start.month}.{report.period_start.year}"
-        f" — {report.period_end.day}.{report.period_end.month}.{report.period_end.year}"
+        f"{_fmt(report.period_start)} — {_fmt(report.period_end)}"
     )
 
 
@@ -331,6 +337,90 @@ def _report_layout() -> dict:
     }
 
 
+def _split_marks(value: str) -> list:
+    parts = [p for p in value.replace(",", " ").replace("/", " ").split() if p]
+    return parts
+
+
+def _mark_color(mark: str) -> str:
+    if _is_numeric_mark(mark):
+        return GRADE_COLORS[int(mark)]
+    return "#95a5a6"
+
+
+def _sector(draw, cx, cy, size, index, count, mark, font_dir: Path):
+    step = 360 / count
+    box = [cx - size / 2, cy - size / 2, cx + size / 2, cy + size / 2]
+    start = -90 + index * step + 1.2
+    draw.pieslice(box, start, start + step - 2.4, fill=_mark_color(mark))
+
+
+def _fit_font(draw, text: str, size: int, font_dir: Path, ratio: float = 0.62):
+    fnt = _font(FONT_BOLD, max(8, int(size * ratio)), font_dir)
+    while draw.textlength(text, font=fnt) > size - 3 and fnt.size > 8:
+        fnt = _font(FONT_BOLD, fnt.size - 1, font_dir)
+    return fnt
+
+
+def _draw_mark_cell(draw, cx, cy, value, size, cell_w, font_dir: Path):
+    marks = _split_marks(value)
+    if not marks:
+        return
+    count = len(marks)
+    box = [cx - size / 2, cy - size / 2, cx + size / 2, cy + size / 2]
+
+    if count == 1:
+        draw.ellipse(box, fill=_mark_color(marks[0]))
+        draw.ellipse(box, outline="#ffffff", width=2)
+        _center_text(draw, cx - size / 2, cy - size / 2, size, size, marks[0],
+                     _fit_font(draw, marks[0], size, font_dir), "#ffffff")
+        return
+
+    if count >= 4:
+        width = min(cell_w - 4, 52)
+        draw.rounded_rectangle([cx - width / 2, cy - size / 2,
+                                cx + width / 2, cy + size / 2],
+                               radius=size / 2, fill="#95a5a6")
+        raw = "/".join(marks)
+        _center_text(draw, cx - width / 2, cy - size / 2, width, size, raw,
+                     _fit_font(draw, raw, width, font_dir), "#ffffff")
+        return
+
+    for index, mark in enumerate(marks):
+        _sector(draw, cx, cy, size, index, count, mark, font_dir)
+    if count == 2:
+        draw.line([(cx, cy - size / 2 + 2), (cx, cy + size / 2 - 2)],
+                  fill="#ffffff", width=1)
+        fnt = _font(FONT_BOLD, int(size * 0.46), font_dir)
+        offset = size * 0.25
+        _center_text(draw, cx - offset - size / 4, cy - size / 4, size / 2,
+                     size / 2, marks[0], fnt, "#ffffff")
+        _center_text(draw, cx + offset - size / 4, cy - size / 4, size / 2,
+                     size / 2, marks[1], fnt, "#ffffff")
+    else:
+        step = 360 / count
+        radius = size * 0.28
+        fnt = _font(FONT_BOLD, int(size * 0.38), font_dir)
+        for index, mark in enumerate(marks):
+            angle = math.radians(-90 + (index + 0.5) * step)
+            dx = math.cos(angle) * radius
+            dy = math.sin(angle) * radius
+            _center_text(draw, cx + dx - size / 4, cy + dy - size / 4,
+                         size / 2, size / 2, mark, fnt, "#ffffff")
+    draw.ellipse(box, outline="#ffffff", width=2)
+
+
+def _merge_subjects(report) -> dict:
+    merged = {}
+    for subject in report.subjects:
+        entry = merged.setdefault(subject.subject,
+                                  {"marks": {}, "average": None})
+        entry["marks"].update(subject.marks or {})
+        if subject.average is not None:
+            entry["average"] = subject.average
+    return merged
+
+
 def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
                   *, with_header: bool) -> Image.Image:
     layout = _report_layout()
@@ -384,7 +474,7 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
                 font=month_font, fill="#2c5aa0")
     y += header_h
 
-    by_subject = {s.subject: s for s in report.subjects}
+    by_subject = _merge_subjects(report)
 
     for block in blocks:
         dr.rounded_rectangle(
@@ -423,18 +513,14 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
                     _truncate_text(dr, name, subject_font, subj_w - 8),
                     font=subject_font, fill="#33415c")
             for index, day in enumerate(block):
-                mark = subject_obj.marks.get(day) if subject_obj else None
+                mark = subject_obj["marks"].get(day) if subject_obj else None
                 if mark is None:
                     continue
-                mx = grid_x + index * col_w + (col_w - mark_size) / 2
-                my = ry + (row_h - mark_size) / 2
-                colour = GRADE_COLORS[int(mark)] if _is_numeric_mark(mark) else "#95a5a6"
-                dr.ellipse([mx, my, mx + mark_size, my + mark_size],
-                           fill=colour, outline="#ffffff", width=2)
-                _center_text(dr, mx, my, mark_size, mark_size, mark,
-                             mark_font, "#ffffff")
-            if subject_obj is not None and subject_obj.average is not None:
-                average = f"{subject_obj.average:.1f}".replace(".", ",")
+                cx = grid_x + index * col_w + col_w / 2
+                cy = ry + row_h / 2
+                _draw_mark_cell(dr, cx, cy, mark, mark_size, col_w, font_dir)
+            if subject_obj is not None and subject_obj["average"] is not None:
+                average = f"{subject_obj['average']:.1f}".replace(".", ",")
                 dr.text((avg_x + (avg_w - dr.textlength(average, font=subject_font)) / 2, ry),
                         average, font=subject_font, fill="#33415c")
             ry += row_h
