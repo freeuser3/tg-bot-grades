@@ -760,6 +760,90 @@ def test_render_report_images_returns_empty_list_for_report_without_marks():
     assert render_report_images(_school_report([])) == []
 
 
+def test_month_image_renders_the_average_column_with_comma_separator():
+    from pathlib import Path
+    from renderer import (FONT_DIR, _group_by_month, _render_month,
+                          _report_layout)
+
+    report = _school_report([_subject("Алгебра", {
+        datetime.date(2026, 9, 1): "5",
+        datetime.date(2026, 9, 2): "4",
+    }, average=4.5)])
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    layout = _report_layout()
+    column = range(layout["avg_x"], layout["avg_x"] + layout["avg_w"])
+    subject_text = (51, 65, 92)
+    assert any(
+        img.getpixel((x, y)) == subject_text
+        for y in range(img.height)
+        for x in column
+    )
+
+
+def test_month_image_draws_the_average_column_header():
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month, _report_layout
+
+    report = _school_report([_subject("Алгебра", {datetime.date(2026, 9, 1): "5"},
+                                      average=4.5)])
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    layout = _report_layout()
+    header_blue = (44, 90, 160)
+    column = range(layout["avg_x"], layout["avg_x"] + layout["avg_w"])
+    assert any(
+        img.getpixel((x, y)) == header_blue
+        for y in range(img.height)
+        for x in column
+    )
+
+
+def test_report_meta_and_title_expose_no_student_data():
+    from renderer import REPORT_TITLE, _report_meta
+    report = _school_report([_subject("Алгебра", {datetime.date(2026, 9, 1): "5"})])
+    meta = _report_meta(report)
+    assert report.student not in meta
+    assert report.school not in meta
+    assert "Фамилия" not in meta
+    assert "Лицей" not in meta
+    assert "Фамилия" not in REPORT_TITLE
+    assert "Лицей" not in REPORT_TITLE
+    assert "Посещаемость" not in REPORT_TITLE
+
+
+def test_month_image_separates_week_cards_by_the_inter_card_gap():
+    from pathlib import Path
+    from renderer import FONT_DIR, _group_by_month, _render_month
+
+    report = _realistic_report()
+    grouped = _group_by_month(report)
+    img = _render_month(report, 2026, 9, grouped[(2026, 9)],
+                        Path(FONT_DIR), with_header=True).convert("RGB")
+
+    probe = img.width // 2
+    card_rows = [y for y in range(img.height)
+                 if img.getpixel((probe, y)) == (255, 255, 255)]
+    blocks = []
+    current = []
+    for y in card_rows:
+        if current and y - current[-1] > 1:
+            blocks.append(current)
+            current = []
+        current.append(y)
+    if current:
+        blocks.append(current)
+
+    assert len(blocks) == 5
+    for upper, lower in zip(blocks, blocks[1:]):
+        gap = lower[0] - upper[-1] - 1
+        assert gap >= 10, f"week cards only {gap}px apart"
+
+
 def test_render_report_images_returns_empty_list_when_all_marks_are_empty():
     from renderer import render_report_images
     report = _school_report([_subject("Алгебра", {}, average=None)])
