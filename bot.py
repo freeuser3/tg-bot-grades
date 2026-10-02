@@ -55,7 +55,11 @@ async def send_report(message: Message):
     except Exception as e:
         await message.answer(f"Ошибка при получении отчёта: {e}")
         return
-    images = render_report_images(report)
+    try:
+        images = render_report_images(report)
+    except Exception as e:
+        await message.answer(f"Ошибка при построении отчёта: {e}")
+        return
     if not images:
         await message.answer("За период оценок нет")
         return
