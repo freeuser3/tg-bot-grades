@@ -371,42 +371,73 @@ def test_group_by_month_returns_empty_for_report_without_marks():
     assert _group_by_month(_school_report([])) == {}
 
 
-def test_week_blocks_splits_september_weekdays_into_iso_weeks():
-    import datetime
-    from renderer import _week_blocks
+def test_mark_chunks_splits_every_eight_marked_days():
+    from renderer import _mark_chunks
 
     days = _weekdays(2026, 9)
-    blocks = _week_blocks(days)
+    blocks = _mark_chunks(days)
 
     assert len(days) == 22
-    assert [len(b) for b in blocks] == [4, 5, 5, 5, 3]
-    assert blocks[0] == [
-        datetime.date(2026, 9, 1),
-        datetime.date(2026, 9, 2),
-        datetime.date(2026, 9, 3),
-        datetime.date(2026, 9, 4),
-    ]
-    assert blocks[-1] == [
-        datetime.date(2026, 9, 28),
-        datetime.date(2026, 9, 29),
-        datetime.date(2026, 9, 30),
-    ]
+    assert [len(b) for b in blocks] == [8, 8, 6]
+    assert [day for block in blocks for day in block] == days
 
 
-def test_week_blocks_returns_empty_list_for_no_days():
-    from renderer import _week_blocks
-    assert _week_blocks([]) == []
-
-
-def test_week_blocks_keeps_saturday_and_sunday_in_one_block():
+def test_mark_chunks_keeps_a_short_last_block():
     import datetime
-    from renderer import _week_blocks
+    from renderer import _mark_chunks
 
-    days = [datetime.date(2026, 9, d) for d in (7, 8, 9, 10, 11, 12, 13)]
-    blocks = _week_blocks(days)
+    days = [datetime.date(2026, 9, d) for d in range(1, 11)]
 
-    assert len(blocks) == 1
-    assert blocks[0] == days
+    assert [len(b) for b in _mark_chunks(days)] == [8, 2]
+
+
+def test_mark_chunks_returns_empty_list_for_no_days():
+    from renderer import _mark_chunks
+    assert _mark_chunks([]) == []
+
+
+def test_mark_chunks_does_not_respect_calendar_weeks():
+    import datetime
+    from renderer import _mark_chunks
+
+    days = [datetime.date(2026, 9, d) for d in (7, 8, 9, 10, 11, 12, 13, 14, 15)]
+    blocks = _mark_chunks(days)
+
+    assert [len(b) for b in blocks] == [8, 1]
+    assert blocks[0][-1] == datetime.date(2026, 9, 14)
+    assert blocks[1] == [datetime.date(2026, 9, 15)]
+
+
+def test_block_label_spans_the_gaps_left_by_days_without_marks():
+    import datetime
+    from renderer import _block_label
+
+    block = [datetime.date(2026, 9, d) for d in (1, 2, 4, 5, 6, 7, 8, 9, 10, 11)]
+
+    assert _block_label(block) == "1–11 сен."
+
+
+def test_block_rows_skip_subjects_that_were_not_marked_in_that_block():
+    import datetime
+    from renderer import _block_rows
+
+    by_subject = {
+        "Алгебра": {
+            "marks": {datetime.date(2026, 9, 1): "5",
+                      datetime.date(2026, 9, 15): "4"},
+            "average": 4.5,
+        },
+        "Физика": {
+            "marks": {datetime.date(2026, 9, 15): "3"},
+            "average": 3.0,
+        },
+    }
+    names = ["Алгебра", "Физика"]
+    first = [datetime.date(2026, 9, d) for d in range(1, 9)]
+    second = [datetime.date(2026, 9, d) for d in range(9, 17)]
+
+    assert _block_rows(first, names, by_subject) == ["Алгебра"]
+    assert _block_rows(second, names, by_subject) == ["Алгебра", "Физика"]
 
 
 def _realistic_report():
@@ -530,7 +561,7 @@ def test_month_image_draws_weekday_above_day_number():
     assert weekday_top < number_top
 
 
-def test_seven_day_week_keeps_marks_clear_of_average_column():
+def test_seven_day_block_keeps_marks_clear_of_average_column():
     from pathlib import Path
     import datetime
     from renderer import (FONT_DIR, _group_by_month, _render_month,
@@ -556,7 +587,7 @@ def test_seven_day_week_keeps_marks_clear_of_average_column():
     assert offenders == []
 
 
-def test_widest_week_block_narrows_columns_to_fit_whole_grid():
+def test_widest_block_narrows_columns_to_fit_whole_grid():
     from pathlib import Path
     import datetime
     from renderer import (FONT_DIR, _group_by_month, _render_month,
@@ -597,6 +628,7 @@ def test_very_long_subject_name_is_truncated_and_stays_inside_column():
     long_name = "Основы мировой художественной культуры и музыкальной литературы"
     report = _school_report([
         _subject(long_name, {datetime.date(2026, 9, 1): "5"}, average=5.0),
+        _subject("Физика", {datetime.date(2026, 9, 2): "5"}, average=5.0),
     ])
     grouped = _group_by_month(report)
     img = _render_month(report, 2026, 9, grouped[(2026, 9)],
@@ -787,8 +819,10 @@ def test_month_image_draws_the_average_column_header():
     from pathlib import Path
     from renderer import FONT_DIR, _group_by_month, _render_month, _report_layout
 
-    report = _school_report([_subject("Алгебра", {datetime.date(2026, 9, 1): "5"},
-                                      average=4.5)])
+    report = _school_report([
+        _subject("Алгебра", {datetime.date(2026, 9, 1): "5"}, average=4.5),
+        _subject("Физика", {datetime.date(2026, 9, 2): "5"}, average=4.5),
+    ])
     grouped = _group_by_month(report)
     img = _render_month(report, 2026, 9, grouped[(2026, 9)],
                         Path(FONT_DIR), with_header=True).convert("RGB")
@@ -816,16 +850,16 @@ def test_report_meta_and_title_expose_no_student_data():
     assert "Посещаемость" not in REPORT_TITLE
 
 
-def test_month_image_separates_week_cards_by_the_inter_card_gap():
+def test_month_image_separates_block_cards_by_the_inter_card_gap():
     from pathlib import Path
-    from renderer import FONT_DIR, _group_by_month, _render_month
+    from renderer import FONT_DIR, _group_by_month, _render_month, _report_layout
 
     report = _realistic_report()
     grouped = _group_by_month(report)
     img = _render_month(report, 2026, 9, grouped[(2026, 9)],
                         Path(FONT_DIR), with_header=True).convert("RGB")
 
-    probe = img.width // 2
+    probe = _report_layout()["grid_x"] - 12
     card_rows = [y for y in range(img.height)
                  if img.getpixel((probe, y)) == (255, 255, 255)]
     blocks = []
@@ -838,10 +872,11 @@ def test_month_image_separates_week_cards_by_the_inter_card_gap():
     if current:
         blocks.append(current)
 
-    assert len(blocks) == 5
+    assert len(grouped[(2026, 9)]["days"]) == 22
+    assert len(blocks) == 3
     for upper, lower in zip(blocks, blocks[1:]):
         gap = lower[0] - upper[-1] - 1
-        assert gap >= 10, f"week cards only {gap}px apart"
+        assert gap >= 10, f"block cards only {gap}px apart"
 
 
 def test_render_report_images_returns_empty_list_when_all_marks_are_empty():
@@ -922,11 +957,15 @@ def _grade_colors(*grades):
 NON_NUMERIC = (149, 165, 166)
 
 
-def _cell_image(marks: dict, subjects=None):
+def _cell_image(marks: dict, subjects=None, *, table: bool = False):
     from pathlib import Path
     from renderer import FONT_DIR, _group_by_month, _render_month
     if subjects is None:
         subjects = [_subject("Алгебра", marks, average=4.5)]
+        if table:
+            subjects = subjects + [_subject("Физика",
+                                             {datetime.date(2026, 9, 2): "н"},
+                                             average=4.0)]
     report = _school_report(subjects)
     grouped = _group_by_month(report)
     return _render_month(report, 2026, 9, grouped[(2026, 9)],
@@ -962,9 +1001,9 @@ def test_split_marks_separates_several_marks_in_one_cell(value, expected):
 
 def test_two_marks_in_one_day_share_a_single_circle():
     from renderer import _report_layout
-    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}, table=True),
                          _grade_colors(5))
-    pair = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4"}),
+    pair = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4"}, table=True),
                        _grade_colors(5, 4))
     assert single is not None
     assert pair is not None
@@ -975,9 +1014,9 @@ def test_two_marks_in_one_day_share_a_single_circle():
 
 
 def test_three_marks_in_one_day_share_a_single_circle():
-    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}, table=True),
                          _grade_colors(5))
-    triple = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3"}),
+    triple = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3"}, table=True),
                          _grade_colors(5, 4, 3))
     assert triple is not None
     assert triple[0] - single[0] <= 3 and single[2] - triple[2] <= 3, (single, triple)
@@ -985,14 +1024,69 @@ def test_three_marks_in_one_day_share_a_single_circle():
 
 def test_four_marks_in_one_day_draw_a_pill_wider_than_a_circle():
     from renderer import _report_layout
-    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}),
+    single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}, table=True),
                          _grade_colors(5))
-    pill = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3/2"}),
+    pill = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3/2"}, table=True),
                        {NON_NUMERIC})
     assert pill is not None
     assert pill[2] - pill[0] - (single[2] - single[0]) > 20
     layout = _report_layout()
     assert pill[0] > layout["grid_x"] - 4 and pill[2] < layout["avg_x"]
+
+
+def test_single_day_block_is_drawn_as_a_list_without_a_grid():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _cell_image({datetime.date(2026, 9, 1): "5"})
+
+    dividers = [(x, y) for y in range(img.height) for x in range(img.width)
+                if img.getpixel((x, y)) == (227, 232, 242)]
+    mark = _color_bbox(img, _grade_colors(5))
+
+    assert dividers == []
+    assert mark is not None
+    assert mark[0] < layout["grid_x"]
+
+
+def test_two_day_block_is_drawn_as_a_grid_with_dividers():
+    from renderer import _report_layout
+    layout = _report_layout()
+    img = _cell_image({datetime.date(2026, 9, 1): "5",
+                       datetime.date(2026, 9, 2): "4"})
+
+    dividers = [x for y in range(img.height) for x in range(img.width)
+                if img.getpixel((x, y)) == (227, 232, 242)]
+    mark = _color_bbox(img, _grade_colors(5))
+
+    assert len(set(dividers)) == 2
+    assert mark is not None
+    assert mark[0] > layout["grid_x"] - 4
+
+
+def test_single_day_list_gives_long_subject_names_more_room_than_the_grid():
+    from renderer import _report_layout
+    layout = _report_layout()
+    subject_text = (51, 65, 92)
+    long_name = "Основы мировой художественной культуры и музыкальной литературы"
+    day_one = {datetime.date(2026, 9, 1): "5"}
+    as_grid = _cell_image(
+        {}, subjects=[_subject(long_name, dict(day_one), average=5.0),
+                      _subject("Физика", {datetime.date(2026, 9, 2): "5"},
+                               average=5.0)])
+    as_list = _cell_image({}, subjects=[_subject(long_name, dict(day_one),
+                                                 average=5.0)])
+
+    def rightmost_name_pixel(img, limit):
+        xs = [x for y in range(img.height) for x in range(limit)
+              if img.getpixel((x, y)) == subject_text]
+        assert xs
+        return max(xs)
+
+    grid_right = rightmost_name_pixel(as_grid, layout["grid_x"] - 4)
+    list_right = rightmost_name_pixel(as_list,
+                                      layout["card_right"] - layout["card_pad"])
+
+    assert list_right - grid_right > 200, (grid_right, list_right)
 
 
 def test_two_subject_rows_with_the_same_name_keep_every_mark():
@@ -1009,6 +1103,4 @@ def test_two_subject_rows_with_the_same_name_keep_every_mark():
         subjects=[_subject("Алгебра", {datetime.date(2026, 9, 1): "5",
                                        datetime.date(2026, 9, 2): "4"},
                            average=4.5)])
-    assert single_row.height == _cell_image(
-        {}, subjects=[_subject("Алгебра", {datetime.date(2026, 9, 1): "5"},
-                               average=4.5)]).height
+    assert merged.height == single_row.height
