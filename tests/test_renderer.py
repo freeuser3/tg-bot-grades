@@ -7,6 +7,7 @@ from PIL import Image
 
 from grades import format_diary
 from renderer import (
+    RENDER_SCALE as _RENDER_SCALE,
     render_diary_image,
     render_monthly_image,
 )
@@ -615,7 +616,8 @@ def test_widest_block_narrows_columns_to_fit_whole_grid():
     centres = [(g[0] + g[-1]) / 2 for g in groups]
     gaps = [round(centres[i + 1] - centres[i]) for i in range(6)]
     expected = layout["grid_w"] // 7
-    assert all(abs(gap - expected) <= 1 for gap in gaps), gaps
+    jitter = max(2, expected // 20)
+    assert all(abs(gap - expected) <= jitter for gap in gaps), gaps
     assert max(groups[-1]) < layout["avg_x"] - 4
 
 
@@ -942,7 +944,7 @@ def test_render_report_images_renders_when_period_bounds_are_missing():
     ])
     images = render_report_images(report)
     assert len(images) == 1
-    assert Image.open(BytesIO(images[0])).width == 720
+    assert Image.open(BytesIO(images[0])).width == round(720 * _RENDER_SCALE)
 
 
 def _rgb(hex_color: str) -> tuple:
@@ -973,11 +975,17 @@ def _cell_image(marks: dict, subjects=None, *, table: bool = False):
 
 
 def _color_bbox(img, colors):
+    return _blend_bbox(img, colors, tolerance=0)
+
+
+def _blend_bbox(img, colors, tolerance=24):
     xs = []
     ys = []
     for y in range(img.height):
         for x in range(img.width):
-            if img.getpixel((x, y)) in colors:
+            pixel = img.getpixel((x, y))
+            if any(max(abs(a - b) for a, b in zip(pixel, color)) <= tolerance
+                   for color in colors):
                 xs.append(x)
                 ys.append(y)
     if not xs:
@@ -999,16 +1007,56 @@ def test_split_marks_separates_several_marks_in_one_cell(value, expected):
     assert _split_marks(value) == expected
 
 
+def test_report_layout_is_scaled_up_from_the_base_measurements():
+    from renderer import RENDER_SCALE, _report_layout
+
+    layout = _report_layout()
+
+    assert RENDER_SCALE > 1
+    assert layout["w"] == round(720 * RENDER_SCALE)
+    assert layout["padding"] == round(32 * RENDER_SCALE)
+    assert layout["card_pad"] == round(24 * RENDER_SCALE)
+    assert layout["subj_w"] == round(240 * RENDER_SCALE)
+    assert layout["avg_w"] == round(52 * RENDER_SCALE)
+    assert layout["grid_x"] - layout["subj_w"] - layout["padding"] - layout["card_pad"] == layout["gap"]
+
+
+def test_september_image_is_wider_than_the_base_width():
+    from renderer import RENDER_SCALE
+
+    assert _render_september().width == round(720 * RENDER_SCALE)
+
+
+def test_marks_are_drawn_bigger_than_the_base_grid():
+    img = _cell_image({datetime.date(2026, 9, 1): "5"}, table=True)
+    box = _blend_bbox(img, _grade_colors(5))
+    diameter = box[2] - box[0] + 1
+    assert diameter >= 30, diameter
+
+
+def test_mark_circle_edges_are_anti_aliased_instead_of_stepped():
+    img = _cell_image({datetime.date(2026, 9, 1): "5"}, table=True)
+    left, top, right, bottom = _color_bbox(img, _grade_colors(5))
+    edge_row = (top + bottom) // 2
+
+    outside = img.getpixel((left - 1, edge_row))
+    inside = img.getpixel((left, edge_row))
+
+    assert outside != (255, 255, 255), "circle edge is a hard cut, no blending"
+    assert outside != inside, "edge pixel is the same flat colour as the fill"
+
+
 def test_two_marks_in_one_day_share_a_single_circle():
     from renderer import _report_layout
     single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}, table=True),
                          _grade_colors(5))
     pair = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4"}, table=True),
                        _grade_colors(5, 4))
+    edge = round(3 * _RENDER_SCALE)
     assert single is not None
     assert pair is not None
-    assert pair[0] - single[0] <= 3 and single[2] - pair[2] <= 3, (single, pair)
-    assert (pair[2] - pair[0]) - (single[2] - single[0]) <= 4
+    assert pair[0] - single[0] <= edge and single[2] - pair[2] <= edge, (single, pair)
+    assert (pair[2] - pair[0]) - (single[2] - single[0]) <= round(4 * _RENDER_SCALE)
     layout = _report_layout()
     assert layout["padding"] < pair[0] and pair[2] < layout["card_right"]
 
@@ -1016,10 +1064,12 @@ def test_two_marks_in_one_day_share_a_single_circle():
 def test_three_marks_in_one_day_share_a_single_circle():
     single = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5"}, table=True),
                          _grade_colors(5))
-    triple = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3"}, table=True),
-                         _grade_colors(5, 4, 3))
+    triple = _color_bbox(
+        _cell_image({datetime.date(2026, 9, 1): "5/4/3"}, table=True),
+        _grade_colors(5, 4, 3))
+    edge = round(3 * _RENDER_SCALE)
     assert triple is not None
-    assert triple[0] - single[0] <= 3 and single[2] - triple[2] <= 3, (single, triple)
+    assert triple[0] - single[0] <= edge and single[2] - triple[2] <= edge, (single, triple)
 
 
 def test_four_marks_in_one_day_draw_a_pill_wider_than_a_circle():
@@ -1029,7 +1079,7 @@ def test_four_marks_in_one_day_draw_a_pill_wider_than_a_circle():
     pill = _color_bbox(_cell_image({datetime.date(2026, 9, 1): "5/4/3/2"}, table=True),
                        {NON_NUMERIC})
     assert pill is not None
-    assert pill[2] - pill[0] - (single[2] - single[0]) > 20
+    assert pill[2] - pill[0] - (single[2] - single[0]) > 20 * _RENDER_SCALE
     layout = _report_layout()
     assert pill[0] > layout["grid_x"] - 4 and pill[2] < layout["avg_x"]
 

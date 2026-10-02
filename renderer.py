@@ -17,6 +17,11 @@ GRADE_COLORS = {
 
 REPORT_TITLE = "Отчёт об успеваемости"
 
+RENDER_SCALE = 1.5
+AA_SCALE = 4
+BASE_MARK_SIZE = 26
+CARD_BG = "#ffffff"
+
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
           "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -326,23 +331,32 @@ def _block_rows(block, names, by_subject) -> list:
 
 
 def _report_layout() -> dict:
-    w, padding, card_pad = 720, 32, 24
-    subj_w, gap, avg_w = 240, 8, 52
+    s = RENDER_SCALE
+    w, padding, card_pad = (int(round(v * s)) for v in (720, 32, 24))
+    subj_w, gap, avg_w = (int(round(v * s)) for v in (240, 8, 52))
     inner_w = w - 2 * padding - 2 * card_pad
     grid_w = inner_w - subj_w - gap - avg_w
     grid_x = padding + card_pad + subj_w + gap
-    return {
+    geom = {
+        "scale": s,
         "w": w,
         "padding": padding,
         "card_pad": card_pad,
         "subj_w": subj_w,
         "gap": gap,
         "avg_w": avg_w,
+        "inner_w": inner_w,
         "grid_w": grid_w,
         "grid_x": grid_x,
         "avg_x": grid_x + grid_w,
         "card_right": padding + w - 2 * padding,
     }
+    for key, base in (("top_pad", 24), ("card_gap", 14), ("row_gap", 8),
+                      ("list_hdr_gap", 6), ("weekday_gap", 4),
+                      ("card_radius", 14), ("col_max", 56), ("col_gap", 12),
+                      ("mark_max", BASE_MARK_SIZE), ("mark_pad", 14)):
+        geom[key] = int(round(base * s))
+    return geom
 
 
 def _split_marks(value: str) -> list:
@@ -356,49 +370,71 @@ def _mark_color(mark: str) -> str:
     return "#95a5a6"
 
 
-def _sector(draw, cx, cy, size, index, count, mark, font_dir: Path):
-    step = 360 / count
-    box = [cx - size / 2, cy - size / 2, cx + size / 2, cy + size / 2]
-    start = -90 + index * step + 1.2
-    draw.pieslice(box, start, start + step - 2.4, fill=_mark_color(mark))
-
-
 def _fit_font(draw, text: str, size: int, font_dir: Path, ratio: float = 0.62):
-    fnt = _font(FONT_BOLD, max(8, int(size * ratio)), font_dir)
-    while draw.textlength(text, font=fnt) > size - 3 and fnt.size > 8:
+    unit = size / BASE_MARK_SIZE
+    limit = size - 3 * unit
+    floor = max(4, int(round(8 * unit)))
+    fnt = _font(FONT_BOLD, max(floor, int(size * ratio)), font_dir)
+    while draw.textlength(text, font=fnt) > limit and fnt.size > floor:
         fnt = _font(FONT_BOLD, fnt.size - 1, font_dir)
     return fnt
 
 
-def _draw_mark_cell(draw, cx, cy, value, size, cell_w, font_dir: Path):
+def _aa_shape(img, box, kind, fill, **kw) -> None:
+    x0, y0 = int(round(box[0])), int(round(box[1]))
+    x1, y1 = int(round(box[2])), int(round(box[3]))
+    w, h = max(1, x1 - x0), max(1, y1 - y0)
+    s = AA_SCALE
+    tile = Image.new("RGB", (w * s, h * s), CARD_BG)
+    td = ImageDraw.Draw(tile)
+    frame = [0, 0, w * s - 1, h * s - 1]
+    if kind == "wedges":
+        for start, end, colour in kw["wedges"]:
+            td.pieslice(frame, start, end, fill=colour)
+    elif kind == "rrect":
+        td.rounded_rectangle(frame, radius=int(round(kw["radius"] * s)), fill=fill)
+    elif fill is not None:
+        td.ellipse(frame, fill=fill)
+    if kw.get("outline"):
+        td.ellipse(frame, outline=kw["outline"],
+                   width=int(round(kw.get("width", 1) * s)))
+    img.paste(tile.resize((w, h), Image.LANCZOS), (x0, y0))
+
+
+def _draw_mark_cell(img, draw, cx, cy, value, size, cell_w, font_dir: Path):
     marks = _split_marks(value)
     if not marks:
         return
+    unit = size / BASE_MARK_SIZE
     count = len(marks)
     box = [cx - size / 2, cy - size / 2, cx + size / 2, cy + size / 2]
 
     if count == 1:
-        draw.ellipse(box, fill=_mark_color(marks[0]))
-        draw.ellipse(box, outline="#ffffff", width=2)
+        _aa_shape(img, box, "ellipse", _mark_color(marks[0]),
+                  outline="#ffffff", width=2 * unit)
         _center_text(draw, cx - size / 2, cy - size / 2, size, size, marks[0],
                      _fit_font(draw, marks[0], size, font_dir), "#ffffff")
         return
 
     if count >= 4:
-        width = min(cell_w - 4, 52)
-        draw.rounded_rectangle([cx - width / 2, cy - size / 2,
-                                cx + width / 2, cy + size / 2],
-                               radius=size / 2, fill="#95a5a6")
+        width = min(cell_w - 4 * unit, size * 2)
+        _aa_shape(img, [cx - width / 2, cy - size / 2, cx + width / 2,
+                        cy + size / 2], "rrect", "#95a5a6", radius=size / 2)
         raw = "/".join(marks)
         _center_text(draw, cx - width / 2, cy - size / 2, width, size, raw,
                      _fit_font(draw, raw, width, font_dir), "#ffffff")
         return
 
+    step = 360 / count
+    wedges = []
     for index, mark in enumerate(marks):
-        _sector(draw, cx, cy, size, index, count, mark, font_dir)
+        start = -90 + index * step + 1.2
+        wedges.append((start, start + step - 2.4, _mark_color(mark)))
+    _aa_shape(img, box, "wedges", None, wedges=wedges, outline="#ffffff",
+              width=2 * unit)
     if count == 2:
-        draw.line([(cx, cy - size / 2 + 2), (cx, cy + size / 2 - 2)],
-                  fill="#ffffff", width=1)
+        draw.line([(cx, cy - size / 2 + 2 * unit), (cx, cy + size / 2 - 2 * unit)],
+                  fill="#ffffff", width=max(1, int(round(unit))))
         fnt = _font(FONT_BOLD, int(size * 0.46), font_dir)
         offset = size * 0.25
         _center_text(draw, cx - offset - size / 4, cy - size / 4, size / 2,
@@ -415,7 +451,6 @@ def _draw_mark_cell(draw, cx, cy, value, size, cell_w, font_dir: Path):
             dy = math.sin(angle) * radius
             _center_text(draw, cx + dx - size / 4, cy + dy - size / 4,
                          size / 2, size / 2, mark, fnt, "#ffffff")
-    draw.ellipse(box, outline="#ffffff", width=2)
 
 
 def _merge_subjects(report) -> dict:
@@ -451,24 +486,26 @@ def _draw_block(dr, block, rows, y, block_h, geom) -> None:
         dr.text((x0 + card_pad, y + card_pad), _day_label(day),
                 font=label_font, fill="#2c5aa0")
         mark_x = x0 + card_pad + mark_size / 2
-        name_x = x0 + card_pad + mark_size + 12
+        name_x = x0 + card_pad + mark_size + layout["col_gap"]
         name_max = layout["card_right"] - card_pad - name_x
         text_h = _text_height(subject_font)
-        ry = y + card_pad + geom["list_hdr_h"] + 8
+        ry = y + card_pad + geom["list_hdr_h"] + layout["row_gap"]
         for name in rows:
             mark = by_subject[name]["marks"].get(day)
             if mark is not None:
-                _draw_mark_cell(dr, mark_x, ry + row_h / 2, mark, mark_size,
-                                col_w, font_dir)
+                _draw_mark_cell(geom["img"], dr, mark_x, ry + row_h / 2, mark,
+                                mark_size, col_w, font_dir)
             dr.text((name_x, ry + (row_h - text_h) / 2),
                     _truncate_text(dr, name, subject_font, name_max),
                     font=subject_font, fill="#33415c")
             ry += row_h
         return
 
-    dr.line([(grid_x - 4, y + card_pad), (grid_x - 4, y + block_h - card_pad)],
+    dr.line([(grid_x - layout["weekday_gap"], y + card_pad),
+             (grid_x - layout["weekday_gap"], y + block_h - card_pad)],
             fill="#e3e8f2", width=1)
-    dr.line([(avg_x - 4, y + card_pad), (avg_x - 4, y + block_h - card_pad)],
+    dr.line([(avg_x - layout["weekday_gap"], y + card_pad),
+             (avg_x - layout["weekday_gap"], y + block_h - card_pad)],
             fill="#e3e8f2", width=1)
     dr.text((x0 + card_pad, y + card_pad), _block_label(block),
             font=label_font, fill="#2c5aa0")
@@ -481,19 +518,20 @@ def _draw_block(dr, block, rows, y, block_h, geom) -> None:
                 weekday, font=weekday_font, fill="#8a94a8")
         number = str(day.day)
         dr.text((cx + (col_w - dr.textlength(number, font=label_font)) / 2,
-                 hy + geom["weekday_h"] + 4), number, font=label_font,
-                fill="#2c5aa0")
+                 hy + geom["weekday_h"] + layout["weekday_gap"]), number,
+                font=label_font, fill="#2c5aa0")
 
     average_label = "Ср."
     dr.text((avg_x + (avg_w - dr.textlength(average_label, font=weekday_font)) / 2,
              hy + (geom["table_hdr_h"] - geom["weekday_h"]) / 2),
             average_label, font=weekday_font, fill="#2c5aa0")
 
-    ry = y + card_pad + geom["table_hdr_h"] + 8
+    ry = y + card_pad + geom["table_hdr_h"] + layout["row_gap"]
     for name in rows:
         subject_obj = by_subject.get(name)
         dr.text((x0 + card_pad, ry),
-                _truncate_text(dr, name, subject_font, subj_w - 8),
+                _truncate_text(dr, name, subject_font,
+                               subj_w - layout["col_gap"]),
                 font=subject_font, fill="#33415c")
         for index, day in enumerate(block):
             mark = subject_obj["marks"].get(day) if subject_obj else None
@@ -501,7 +539,8 @@ def _draw_block(dr, block, rows, y, block_h, geom) -> None:
                 continue
             cx = grid_x + index * col_w + col_w / 2
             cy = ry + row_h / 2
-            _draw_mark_cell(dr, cx, cy, mark, mark_size, col_w, font_dir)
+            _draw_mark_cell(geom["img"], dr, cx, cy, mark, mark_size, col_w,
+                            font_dir)
         if subject_obj is not None and subject_obj["average"] is not None:
             average = f"{subject_obj['average']:.1f}".replace(".", ",")
             dr.text((avg_x + (avg_w - dr.textlength(average, font=subject_font)) / 2, ry),
@@ -512,6 +551,7 @@ def _draw_block(dr, block, rows, y, block_h, geom) -> None:
 def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
                   *, with_header: bool) -> Image.Image:
     layout = _report_layout()
+    s = layout["scale"]
     padding = layout["padding"]
     card_pad = layout["card_pad"]
     subj_w = layout["subj_w"]
@@ -520,55 +560,57 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
     grid_x = layout["grid_x"]
     avg_x = layout["avg_x"]
 
-    title_font = _font(FONT_BOLD, 26, font_dir)
-    month_font = _font(FONT_BOLD, 20, font_dir)
-    label_font = _font(FONT_BOLD, 18, font_dir)
-    weekday_font = _font(FONT_BOLD, 14, font_dir)
-    subject_font = _font(FONT_NORMAL, 18, font_dir)
-    meta_font = _font(FONT_NORMAL, 14, font_dir)
+    title_font = _font(FONT_BOLD, round(26 * s), font_dir)
+    month_font = _font(FONT_BOLD, round(20 * s), font_dir)
+    label_font = _font(FONT_BOLD, round(18 * s), font_dir)
+    weekday_font = _font(FONT_BOLD, round(14 * s), font_dir)
+    subject_font = _font(FONT_NORMAL, round(18 * s), font_dir)
+    meta_font = _font(FONT_NORMAL, round(14 * s), font_dir)
 
     subjects = data["subjects"]
     by_subject = _merge_subjects(report)
     blocks = _mark_chunks(data["days"])
     rows_per_block = [_block_rows(block, subjects, by_subject) for block in blocks]
     max_days = max((len(block) for block in blocks), default=1)
-    col_w = min(56, grid_w // max_days)
-    mark_size = min(26, col_w - 12)
-    row_h = mark_size + 14
+    col_w = min(layout["col_max"], grid_w // max_days)
+    mark_size = min(layout["mark_max"], col_w - layout["col_gap"])
+    row_h = mark_size + layout["mark_pad"]
 
     weekday_h = _text_height(weekday_font, "Ag")
     label_h = _text_height(label_font, "Ag")
-    table_hdr_h = weekday_h + 4 + label_h
-    list_hdr_h = label_h + 6
+    table_hdr_h = weekday_h + layout["weekday_gap"] + label_h
+    list_hdr_h = label_h + layout["list_hdr_gap"]
     block_heights = [
-        card_pad * 2 + (list_hdr_h if len(block) == 1 else table_hdr_h) + 8
-        + max(len(rows), 1) * row_h
+        card_pad * 2 + (list_hdr_h if len(block) == 1 else table_hdr_h)
+        + layout["row_gap"] + max(len(rows), 1) * row_h
         for block, rows in zip(blocks, rows_per_block)
     ]
 
     if with_header:
-        header_h = _text_height(title_font, "Ag") + 6 + _text_height(meta_font, "Ag") + 18
+        header_h = (_text_height(title_font, "Ag") + 6 * s
+                    + _text_height(meta_font, "Ag") + 18 * s)
     else:
-        header_h = _text_height(month_font, "Ag") + 18
+        header_h = _text_height(month_font, "Ag") + 18 * s
 
-    total_h = (24 + header_h + sum(block_heights)
-               + 14 * max(len(blocks) - 1, 0) + padding)
+    total_h = int(round(layout["top_pad"] + header_h + sum(block_heights)
+                        + layout["card_gap"] * max(len(blocks) - 1, 0) + padding))
 
-    img = Image.new("RGB", (layout["w"], total_h), "#f4f6fb")
+    img = Image.new("RGB", (int(round(layout["w"])), total_h), "#f4f6fb")
     dr = ImageDraw.Draw(img)
     x0 = padding
-    y = 24
+    y = layout["top_pad"]
 
     if with_header:
         dr.text((x0, y), REPORT_TITLE, font=title_font, fill="#1c3d6e")
-        dr.text((x0, y + _text_height(title_font, "Ag") + 6), _report_meta(report),
-                font=meta_font, fill="#5a6478")
+        dr.text((x0, y + _text_height(title_font, "Ag") + 6 * s),
+                _report_meta(report), font=meta_font, fill="#5a6478")
     else:
         dr.text((x0, y), f"{MONTHS[month - 1].capitalize()} {year}",
                 font=month_font, fill="#2c5aa0")
     y += header_h
 
     geom = {
+        "img": img,
         "layout": layout,
         "x0": x0,
         "card_pad": card_pad,
@@ -592,10 +634,11 @@ def _render_month(report, year: int, month: int, data: dict, font_dir: Path,
     for block, rows, block_h in zip(blocks, rows_per_block, block_heights):
         dr.rounded_rectangle(
             [x0, y, layout["card_right"], y + block_h],
-            radius=14, fill="#ffffff", outline="#dde3f0", width=1,
+            radius=int(round(layout["card_radius"])), fill="#ffffff", outline="#dde3f0",
+            width=1,
         )
         _draw_block(dr, block, rows, y, block_h, geom)
-        y += block_h + 14
+        y += block_h + layout["card_gap"]
 
     return img
 
